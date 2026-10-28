@@ -58,6 +58,11 @@
             </intent-filter>
         </activity>
         
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.JarvisAssistant" />
+        
         <service
             android:name=".service.JarvisVoiceService"
             android:enabled="true"

@@ -119,7 +119,9 @@ class MainActivity : ComponentActivity() {
                         titleContentColor = Color.Cyan
                     ),
                     actions = {
-                        IconButton(onClick = { }) {
+                        IconButton(onClick = { 
+                            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+                        }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
                         }
                     }
