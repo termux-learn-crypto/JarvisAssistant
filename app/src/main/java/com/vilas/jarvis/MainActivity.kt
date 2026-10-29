@@ -302,7 +302,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val v = voices[(i + 1) % voices.size]
         tts?.setVoice(v)
         prefs.edit().putString(voicePrefKey(), v.name).apply()
-        speak("Hey! Main Maira. Ye awaaz kaisi lagi?")
+        speak(if (isIndicTts()) "हे! मैं मायरा। ये आवाज़ कैसी लगी?" else "Hey! I am Maira. How does this voice sound?")
     }
 
     private fun speak(text: String) {
@@ -364,7 +364,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun onPlan(plan: Plan) {
         if (plan.confirmationRequired) {
             log("Maira", plan.reply)
-            speak(plan.reply)
+            speak(plan.speech)
             AlertDialog.Builder(this)
                 .setTitle("Kar doon?")
                 .setMessage(plan.reply + "\n\n" + plan.describe())
@@ -381,17 +381,28 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val spoken = StringBuilder()
         if (announce && plan.reply.isNotBlank()) {
             log("Maira", plan.reply)
-            spoken.append(plan.reply)
+            spoken.append(plan.speech)
         }
         for (a in plan.actions) {
             val status = executor.execute(a)
             log("  ⚙", status)
-            // Battery jaisi info aur ask_user ka sawaal bolkar bhi batao
-            if (a.tool == "read_battery" || a.tool == "ask_user") {
-                if (!(a.tool == "ask_user" && status == plan.reply)) spoken.append(" ").append(status)
-            }
+            // Battery ki asli value model ko pata nahi hoti, isliye yahan bolte hain
+            if (a.tool == "read_battery") spoken.append(" ").append(batterySpeech())
         }
         speak(spoken.toString().trim())
+    }
+
+    private fun isIndicTts() = languages[langIndex].tts != "en-IN"
+
+    private fun batterySpeech(): String {
+        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        val pct = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val charging = bm.isCharging
+        return if (isIndicTts()) {
+            "बैटरी $pct परसेंट है" + if (charging) ", चार्ज हो रही है।" else if (pct <= 20) ", जल्दी चार्जर लगा लो।" else "।"
+        } else {
+            "Battery is at $pct percent" + if (charging) ", and charging." else "."
+        }
     }
 
     companion object {

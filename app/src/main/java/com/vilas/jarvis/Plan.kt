@@ -7,7 +7,8 @@ data class Action(val tool: String, val params: JSONObject)
 data class Plan(
     val actions: List<Action>,
     val confirmationRequired: Boolean,
-    val reply: String
+    val reply: String,
+    val speech: String
 ) {
     companion object {
         private val SENSITIVE = setOf("send_sms", "make_call", "screen_action")
@@ -31,7 +32,9 @@ data class Plan(
             // Safety: sensitive action ho to confirmation hamesha true
             val confirm = json.optBoolean("confirmationRequired", false) ||
                 list.any { it.tool in SENSITIVE }
-            return Plan(list, confirm, json.optString("reply", ""))
+            val reply = json.optString("reply", "")
+            val speech = json.optString("speech", "").ifBlank { reply }
+            return Plan(list, confirm, reply, speech)
         }
     }
 
