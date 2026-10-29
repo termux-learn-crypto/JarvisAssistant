@@ -68,11 +68,21 @@ object Brain {
 
     /** Background thread se call karo. */
     fun plan(ctx: Context, command: String): Plan {
-        // Pehle offline dimaag (tez, free). Samajh na aaye to Gemini (agar key ho).
-        LocalBrain.parse(ctx, command)?.let { return it }
+        // "agent ..." bola to seedha agent
+        if (Agent.forced(command)) return agentPlan(ctx, Agent.stripForce(command))
+        // Pehle offline dimaag (tez, free).
+        val local = LocalBrain.parse(ctx, command)
+        // Kai step wala kaam jise offline parser poora nahi samjha (sirf app khola) -> agent / Gemini
+        val partial = local == null || local.actions.isEmpty() ||
+            local.actions.all { it.tool == "open_app" || it.tool == "screen_action" }
+        if (Agent.looksMultiStep(command) && partial) {
+            if (!smart(ctx) && LocalLlm.ready(ctx)) return agentPlan(ctx, command)
+            if (!smart(ctx) && local != null) return local
+        } else if (local != null) return local
         if (!smart(ctx) && LocalLlm.ready(ctx)) {
             return try {
                 val (cmd, ans) = LocalLlm.route(ctx, command)
+                if (cmd != null && cmd.startsWith("AGENT:")) return agentPlan(ctx, cmd.removePrefix("AGENT:").trim().ifBlank { command })
                 cmd?.let { c -> LocalBrain.parse(ctx, c)?.let { return it } }
                 val reply = ans.ifBlank { if (lang(ctx).mode == "English") "Sorry, I didn't get that." else "Sorry yaar, ye samajh nahi aaya." }
                 Plan(emptyList(), false, reply, reply)
@@ -98,6 +108,13 @@ object Brain {
         }
         val msg = "Voice mode: ${lang(ctx).mode}\nCommand: $command"
         return Plan.parse(GeminiClient(apiKey(ctx), model(ctx)).generate(systemPrompt(ctx), msg))
+    }
+
+    fun agentPlan(ctx: Context, goal: String): Plan {
+        val en = lang(ctx).mode == "English"
+        return Plan(listOf(Action("agent_task", JSONObject().put("goal", goal))), false,
+            if (en) "On it, doing it step by step." else "Ruko, step by step kar rahi hoon.",
+            if (en) "On it." else "रुको, कर रही हूँ।")
     }
 
     private const val READER_PROMPT = """Tum Maira ho: Vilas ki dost jaisi female voice assistant (casual, friendly, short, koi emoji nahi, feminine verb forms jaise "bata rahi hoon").
@@ -157,6 +174,12 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
                 sleep(900)
             }
             val status: String = when (a.tool) {
+                "agent_task" -> {
+                    if (!hidden && !appOpened) { act.runOnUiThread { hideSelf() }; hidden = true; sleep(700) }
+                    val r = Agent.run(act, executor, a.params.optString("goal"), log)
+                    log("Maira", r); extra.append(" ").append(r)
+                    "Agent ne kaam khatam kiya."
+                }
                 "read_screen" -> readScreen(act, a.params.optString("question"), extra, log)
                 "read_notifications" -> readNotifs(act, a.params.optString("app_name"), a.params.optString("question"), extra, log)
                 else -> executor.execute(a)

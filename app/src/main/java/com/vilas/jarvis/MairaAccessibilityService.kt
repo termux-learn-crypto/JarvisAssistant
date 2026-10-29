@@ -484,6 +484,72 @@ class MairaAccessibilityService : AccessibilityService() {
         }
     }
 
+    // ======================= AGENT (screen dekh ke step-by-step) =======================
+
+    @Volatile private var agentNodes: List<AccessibilityNodeInfo> = emptyList()
+
+    /** Screen ke kaam ke elements numbered list mein: [3] button "Send". */
+    fun snapshot(max: Int): String {
+        val out = StringBuilder()
+        val list = mutableListOf<AccessibilityNodeInfo>()
+        val seen = HashSet<String>()
+        for (n in allNodes()) {
+            if (!n.isVisibleToUser) continue
+            val r = android.graphics.Rect(); n.getBoundsInScreen(r)
+            if (r.width() < 8 || r.height() < 8) continue
+            val raw = if (n.isPassword) "(password)" else label(n).replace(Regex("\\s+"), " ").trim()
+            val interactive = n.isClickable || n.isEditable || n.isLongClickable || n.isCheckable
+            if (!interactive && raw.length < 2) continue
+            val kind = when {
+                n.isEditable -> "input"
+                n.isCheckable -> if (n.isChecked) "switch(on)" else "switch(off)"
+                n.isClickable || n.isLongClickable -> "button"
+                else -> "text"
+            }
+            var txt = Safety.maskOtp(raw).take(60)
+            if (txt.isEmpty()) {
+                // bina naam ka button: andar ke text se naam lo
+                txt = (0 until n.childCount).mapNotNull { n.getChild(it)?.let { c -> label(c) } }
+                    .firstOrNull { it.isNotBlank() }?.take(40) ?: (n.viewIdResourceName?.substringAfter("/")?.take(30) ?: "")
+            }
+            val key = "$kind|$txt|${r.centerX() / 20}|${r.centerY() / 20}"
+            if (!seen.add(key)) continue
+            if (kind == "text" && list.size >= max * 3 / 4) continue
+            list.add(n)
+            out.append("[").append(list.size).append("] ").append(kind).append(" \"").append(txt).append("\"")
+            if (n.isFocused && n.isEditable) out.append(" (focused)")
+            if (n.isSelected) out.append(" (selected)")
+            out.append("\n")
+            if (list.size >= max) break
+        }
+        agentNodes = list
+        return out.toString().ifBlank { "(screen khali / padh nahi paayi)" }
+    }
+
+    private fun agentNode(id: Int): AccessibilityNodeInfo? = agentNodes.getOrNull(id - 1)
+
+    fun agentLabel(id: Int): String = agentNode(id)?.let { label(it) } ?: ""
+
+    fun agentTap(id: Int, long: Boolean = false): String {
+        guard()?.let { return it }
+        val n = agentNode(id) ?: return "Number $id screen pe nahi hai."
+        var c: AccessibilityNodeInfo? = n
+        while (c != null && !(if (long) c.isLongClickable else c.isClickable)) c = c.parent
+        val act = if (long) AccessibilityNodeInfo.ACTION_LONG_CLICK else AccessibilityNodeInfo.ACTION_CLICK
+        if (c != null && c.performAction(act)) return "[$id] daba diya."
+        val r = android.graphics.Rect(); n.getBoundsInScreen(r)
+        return if (tap(r.exactCenterX(), r.exactCenterY(), if (long) 700L else 60L)) "[$id] tap kiya." else "[$id] dab nahi paya."
+    }
+
+    fun agentType(id: Int, text: String): String {
+        guard()?.let { return it }
+        val n = agentNode(id)?.takeIf { it.isEditable } ?: return typeText(text)
+        if (n.isPassword) return "Password field mein main nahi likhti."
+        n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        return if (setText(n, text)) "Likh diya: $text" else "Type nahi ho paya."
+    }
+
     fun clearOverlays() { onMain { hideCursor(); hideLabels() } }
 
     companion object {
