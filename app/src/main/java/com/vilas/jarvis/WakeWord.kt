@@ -93,12 +93,16 @@ class WakeService : Service() {
 
     // Vosk ka chhota model "Maira" ko aksar "mirror"/"mira" likhta hai (test kiya), aur "mera" ko bhi "mirror".
     // Isliye "Hey/Hi/OK" ke saath wala hi pakka maante hain; "easy" mode mein sirf naam bhi chalega.
-    private val wake = Regex(
-        "\\b(hey|hi|hay|him|hm|hmm|okay|ok|oh|hello|he)\\s+(mirror|myra|mira|moira|mayra|maira|maya|maria|mara|my\\s+ra)\\b" +
-        "|\\b(mirror|mira|myra|moira)\\s+(soon|suno|sun|soono|listen)\\b" +
-        "|^\\s*(the|a)\\s+(mirror|myra|mira|moira)\\b"
-    )
-    private val easyWake = Regex("\\b(mirror|myra|mira|moira|mayra|maira)\\b")
+    // Grammar: Vosk ko sirf ye shabd sunne do (baaki sab "[unk]"). Test mein bina grammar ke "Hey Maira" lagbhag kabhi nahi pakda jata tha.
+    private val names = listOf("mirror", "myra", "mira", "mayor", "meera", "maria", "moira", "maya", "mara")
+    private val prefixes = listOf("hey", "hi", "okay", "hello")
+    private val grammar: String = org.json.JSONArray(
+        prefixes.flatMap { p -> names.map { "$p $it" } } + names + prefixes + listOf("[unk]")
+    ).toString()
+    // Normal: "hey/hi/okay" + naam ("mira/maria/maya" chhode kyunki "mera" se galti hoti hai)
+    private val wake = Regex("\\b(hey|hi|okay)\\s+(mirror|myra|mayor|mara|moira|meera)\\b")
+    // Easy: koi bhi naam jaisa shabd
+    private val easyWake = Regex("\\b(mirror|myra|mira|mayor|meera|maria|moira|maya|mara)\\b")
     private var lastShown = 0L
     private var notifBuilder: Notification.Builder? = null
 
@@ -178,7 +182,7 @@ class WakeService : Service() {
                 if (rec.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("mic")
                 if (AcousticEchoCanceler.isAvailable()) aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
                 if (NoiseSuppressor.isAvailable()) ns = NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true }
-                vr = Recognizer(m, 16000f)
+                vr = try { Recognizer(m, 16000f, grammar) } catch (_: Exception) { Recognizer(m, 16000f) }
                 rec.startRecording()
                 val buf = ByteArray(4096)
                 var sinceReset = 0
@@ -221,13 +225,36 @@ class WakeService : Service() {
         paused = true
         stopMic()
         main.postDelayed({
-            try {
-                startActivity(Intent(this, QuickMicActivity::class.java).putExtra("wake", true)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
-            } catch (_: Exception) { resumeMic() }
+            val i = Intent(this, QuickMicActivity::class.java).putExtra("wake", true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            // Background se activity kholna: accessibility service ke context se allowed hai
+            val launched = try {
+                val a = MairaAccessibilityService.instance
+                if (a != null) { a.startActivity(i); true } else { startActivity(i); true }
+            } catch (_: Exception) { try { startActivity(i); true } catch (_: Exception) { false } }
+            // Backup: full-screen notification (agar Android ne activity rok di)
+            main.postDelayed({ if (QuickMicActivity.open == 0) wakeNotify(i) }, 1200)
+            if (!launched) wakeNotify(i)
         }, 150)
         // Agar quick mic na khule (permission), to 20s baad phir sunna shuru
         main.postDelayed({ if (paused && QuickMicActivity.open == 0) resumeMic() }, 20000)
+    }
+
+    private fun wakeNotify(i: Intent) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(CH2, "Hey Maira alert", NotificationManager.IMPORTANCE_HIGH))
+        val pi = PendingIntent.getActivity(this, 9, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = Notification.Builder(this, CH2)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("Haan, bolo?")
+            .setContentText("Maira sun rahi hai, yahan dabao")
+            .setCategory(Notification.CATEGORY_CALL)
+            .setFullScreenIntent(pi, true)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setTimeoutAfter(15000)
+            .build()
+        try { nm.notify(NID + 1, n) } catch (_: Exception) {}
     }
 
     fun pauseMic() { main.post { paused = true; stopMic() } }
@@ -236,6 +263,7 @@ class WakeService : Service() {
 
     companion object {
         private const val CH = "maira_wake"
+        private const val CH2 = "maira_wake_alert"
         private const val NID = 4242
         private const val ACTION_STOP = "com.vilas.jarvis.WAKE_STOP"
         @Volatile var instance: WakeService? = null
