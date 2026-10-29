@@ -228,14 +228,45 @@ class ActionExecutor(private val activity: Activity) {
 
     private fun playMusic(p: JSONObject): String {
         val q = listOf(p.optString("song_name"), p.optString("artist_name"), p.optString("playlist_name"))
-            .filter { it.isNotBlank() }.joinToString(" ")
+            .filter { it.isNotBlank() }.joinToString(" ").trim()
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        if (q.isBlank()) {
+            // Bina naam ke: pehle jo player last tha use resume karo
+            mediaControl("play")
+            try { Thread.sleep(900) } catch (_: InterruptedException) {}
+            if (am.isMusicActive) return "Gaana chala diya."
+        }
+        val query = q.ifBlank { "latest hindi songs" }
+        // YouTube search se pehla video nikaal ke seedha chalao (watch link autoplay hota hai)
+        val id = firstYoutubeVideoId(query)
+        val url = if (id != null) "https://www.youtube.com/watch?v=$id"
+                  else "https://www.youtube.com/results?search_query=" + Uri.encode(query)
+        val yt = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        val ytPkg = "com.google.android.youtube"
+        val hasYt = try { ctx.packageManager.getPackageInfo(ytPkg, 0); true } catch (_: Exception) { false }
+        if (hasYt) yt.setPackage(ytPkg)
+        if (start(yt) || start(Intent(Intent.ACTION_VIEW, Uri.parse(url)))) {
+            return if (id != null) "YouTube pe chala diya: $query" else "YouTube pe search khol diya: $query"
+        }
+        // Aakhri koshish: phone ka music app
         val i = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
             .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
-            .putExtra(SearchManager.QUERY, q)
-        if (start(i)) return "Music chala rahi hoon${if (q.isNotBlank()) ": $q" else ""}."
-        val yt = "https://www.youtube.com/results?search_query=" + Uri.encode(q.ifBlank { "music" })
-        return if (start(Intent(Intent.ACTION_VIEW, Uri.parse(yt)))) "YouTube pe khol diya." else "Music app nahi mila."
+            .putExtra(SearchManager.QUERY, query)
+        return if (start(i)) "Music app mein chala rahi hoon: $query" else "Koi music app ya YouTube nahi mila."
     }
+
+    private fun firstYoutubeVideoId(query: String): String? = try {
+        val conn = java.net.URL("https://www.youtube.com/results?search_query=" + Uri.encode(query))
+            .openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 6000
+        conn.readTimeout = 8000
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36")
+        conn.setRequestProperty("Accept-Language", "en-IN,en;q=0.9,hi;q=0.8")
+        val html = conn.inputStream.bufferedReader().use { it.readText() }
+        conn.disconnect()
+        Regex("\"videoId\":\"([A-Za-z0-9_-]{11})\"").find(html)?.groupValues?.get(1)
+    } catch (_: Exception) { null }
 
     private fun toggleWifi(): String {
         // Android 10+ apps ko seedha WiFi on/off nahi karne deta, isliye panel kholte hain
