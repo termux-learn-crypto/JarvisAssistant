@@ -177,16 +177,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        WakeService.instance?.pauseMic()
         if (prefs.getBoolean("wake", false) && WakeService.instance == null && WakeModel.ready(this)) {
             try { WakeService.start(this) } catch (_: Exception) {}
-            android.os.Handler(mainLooper).postDelayed({ WakeService.instance?.pauseMic() }, 1500)
         }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        if (QuickMicActivity.open == 0) WakeService.instance?.resumeMic()
     }
 
     private fun pickModelFile() {
@@ -309,7 +302,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
         box.addView(skipBox)
         box.addView(micBox)
+        val easyBox = android.widget.CheckBox(this).apply {
+            text = "Sirf \"Maira\" bolne pe bhi khulo (galti se zyada khul sakti hai)"
+            isChecked = prefs.getBoolean("wake_easy", false)
+        }
         box.addView(wakeBox)
+        box.addView(easyBox)
         box.addView(accBtn)
         val aiBtn = Button(this).apply {
             isAllCaps = false
@@ -328,6 +326,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     .putBoolean("autoskip", skipBox.isChecked)
                     .putBoolean("quickmic", micBox.isChecked)
                     .putBoolean("wake", wakeBox.isChecked)
+                    .putBoolean("wake_easy", easyBox.isChecked)
                     .apply()
                 applyWake()
                 QuickMic.refreshNotification(this)
@@ -367,6 +366,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         try {
             @Suppress("DEPRECATION")
+            WakeService.instance?.pauseMic()
             startActivityForResult(i, REQ_SPEECH)
         } catch (e: ActivityNotFoundException) {
             log("Maira", "Is phone pe voice input nahi mila. Google app install/update karo.")
@@ -377,6 +377,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_MODEL && resultCode == RESULT_OK) { data?.data?.let { importModel(it) }; return }
+        if (requestCode == REQ_SPEECH && QuickMicActivity.open == 0) WakeService.instance?.resumeMic()
         if (requestCode == REQ_SPEECH && resultCode == RESULT_OK) {
             val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!text.isNullOrBlank()) handleCommand(text)

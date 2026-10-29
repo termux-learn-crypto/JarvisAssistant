@@ -91,9 +91,25 @@ class WakeService : Service() {
     private var paused = false
     private var lastTrigger = 0L
 
+    // Vosk ka chhota model "Maira" ko aksar "mirror"/"mira" likhta hai (test kiya), aur "mera" ko bhi "mirror".
+    // Isliye "Hey/Hi/OK" ke saath wala hi pakka maante hain; "easy" mode mein sirf naam bhi chalega.
     private val wake = Regex(
-        "\\b(hey|hi|hello|ok|okay|hay)\\s+(maira|myra|mira|meera|mayra|maya|moira|mera|maria|nyra|myrah|mara|maira's|maiora)\\b"
+        "\\b(hey|hi|hay|him|hm|hmm|okay|ok|oh|hello|he)\\s+(mirror|myra|mira|moira|mayra|maira|maya|maria|mara|my\\s+ra)\\b" +
+        "|\\b(mirror|mira|myra|moira)\\s+(soon|suno|sun|soono|listen)\\b" +
+        "|^\\s*(the|a)\\s+(mirror|myra|mira|moira)\\b"
     )
+    private val easyWake = Regex("\\b(mirror|myra|mira|moira|mayra|maira)\\b")
+    private var lastShown = 0L
+    private var notifBuilder: Notification.Builder? = null
+
+    private fun showHeard(t: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastShown < 1200) return
+        lastShown = now
+        val b = notifBuilder ?: return
+        b.setContentText("Suna: \"$t\" — bolo \"Hey Maira\"")
+        getSystemService(NotificationManager::class.java).notify(NID, b.build())
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,14 +122,16 @@ class WakeService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val openPi = PendingIntent.getActivity(this, 8, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val n = Notification.Builder(this, CH)
+        val nb = Notification.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Maira sun rahi hai")
             .setContentText("Bolo \"Hey Maira\"")
             .setOngoing(true)
             .setContentIntent(openPi)
             .addAction(Notification.Action.Builder(null, "Band karo", stopPi).build())
-            .build()
+            .setOnlyAlertOnce(true)
+        notifBuilder = nb
+        val n = nb.build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(NID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         else startForeground(NID, n)
         Thread {
@@ -155,7 +173,7 @@ class WakeService : Service() {
             try {
                 val min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 val size = maxOf(min, 8192)
-                rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000,
+                rec = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size * 2)
                 if (rec.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("mic")
                 if (AcousticEchoCanceler.isAvailable()) aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
@@ -190,7 +208,10 @@ class WakeService : Service() {
     private fun check(json: String?, key: String) {
         val t = try { JSONObject(json ?: return).optString(key) } catch (_: Exception) { return }
         if (t.isBlank()) return
-        if (wake.containsMatchIn(t.lowercase())) main.post { trigger() }
+        val low = t.lowercase()
+        main.post { showHeard(low) }
+        val easy = Brain.prefs(this).getBoolean("wake_easy", false)
+        if (wake.containsMatchIn(low) || (easy && easyWake.containsMatchIn(low))) main.post { trigger() }
     }
 
     private fun trigger() {
