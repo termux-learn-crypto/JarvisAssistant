@@ -52,7 +52,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         askPermissions()
         log("Maira", "Hey Vilas! Main Maira. Mic dabao aur bindaas bolo.")
-        if (apiKey().isBlank()) showSettings()
         QuickMic.refreshNotification(this)
     }
 
@@ -161,10 +160,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setPadding(dp(20), dp(8), dp(20), 0)
         }
         val info = TextView(this).apply {
-            text = "Gemini API key aistudio.google.com/apikey se free milti hai. Key sirf is phone pe save hogi."
+            text = "Maira bina key ke bhi roz ke kaam karti hai. Mushkil commands ke liye free Gemini key (aistudio.google.com/apikey) daal sakte ho, ye sirf is phone pe save hogi."
         }
         val keyField = EditText(this).apply {
-            hint = "Gemini API key"
+            hint = "Gemini API key (optional)"
             setText(apiKey())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
@@ -333,12 +332,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun handleCommand(text: String) {
         if (busy) return
-        val key = apiKey()
-        if (key.isBlank()) {
-            log("Maira", "Pehle settings mein Gemini API key daalo.")
-            showSettings()
-            return
-        }
         log("Aap", text)
         busy = true
         log("Maira", "Ek sec…")
