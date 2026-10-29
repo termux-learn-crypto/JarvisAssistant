@@ -15,8 +15,11 @@ import android.os.Looper
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -83,7 +86,8 @@ class WakeService : Service() {
 
     private val main = Handler(Looper.getMainLooper())
     private var model: Model? = null
-    private var speech: SpeechService? = null
+    @Volatile private var loop: Thread? = null
+    @Volatile private var running = false
     private var paused = false
     private var lastTrigger = 0L
 
@@ -138,27 +142,55 @@ class WakeService : Service() {
         super.onDestroy()
     }
 
+    /** Apna mic loop: VOICE_COMMUNICATION + echo cancel, taaki phone ka apna gaana/video wake word na bane. */
     private fun listen() {
         val m = model ?: return
-        if (speech != null || paused) return
-        try {
-            val rec = Recognizer(m, 16000f)
-            speech = SpeechService(rec, 16000f).also { it.startListening(listener) }
-        } catch (e: Exception) {
-            speech = null
-            main.postDelayed({ listen() }, 3000)   // mic busy ho to thodi der baad
-        }
+        if (loop != null || paused) return
+        running = true
+        loop = Thread {
+            var rec: AudioRecord? = null
+            var aec: AcousticEchoCanceler? = null
+            var ns: NoiseSuppressor? = null
+            var vr: Recognizer? = null
+            try {
+                val min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                val size = maxOf(min, 8192)
+                rec = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size * 2)
+                if (rec.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("mic")
+                if (AcousticEchoCanceler.isAvailable()) aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
+                if (NoiseSuppressor.isAvailable()) ns = NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true }
+                vr = Recognizer(m, 16000f)
+                rec.startRecording()
+                val buf = ByteArray(4096)
+                var sinceReset = 0
+                while (running) {
+                    val n = rec.read(buf, 0, buf.size)
+                    if (n <= 0) continue
+                    if (vr.acceptWaveForm(buf, n)) { check(vr.result, "text"); sinceReset = 0 }
+                    else check(vr.partialResult, "partial")
+                    sinceReset += n
+                    if (sinceReset > 16000 * 2 * 8) { vr.reset(); sinceReset = 0 }  // lambi baat-cheet/gaana: har 8s reset
+                }
+            } catch (e: Exception) {
+                if (running && !paused) main.postDelayed({ loop = null; listen() }, 3000)
+            } finally {
+                try { rec?.stop() } catch (_: Exception) {}
+                rec?.release(); aec?.release(); ns?.release(); vr?.close()
+            }
+        }.also { it.start() }
     }
 
     private fun stopMic() {
-        try { speech?.stop(); speech?.shutdown() } catch (_: Exception) {}
-        speech = null
+        running = false
+        val t = loop; loop = null
+        if (t != null && t != Thread.currentThread()) try { t.join(600) } catch (_: Exception) {}
     }
 
     private fun check(json: String?, key: String) {
         val t = try { JSONObject(json ?: return).optString(key) } catch (_: Exception) { return }
         if (t.isBlank()) return
-        if (wake.containsMatchIn(t.lowercase())) trigger()
+        if (wake.containsMatchIn(t.lowercase())) main.post { trigger() }
     }
 
     private fun trigger() {
@@ -169,7 +201,7 @@ class WakeService : Service() {
         stopMic()
         main.postDelayed({
             try {
-                startActivity(Intent(this, QuickMicActivity::class.java)
+                startActivity(Intent(this, QuickMicActivity::class.java).putExtra("wake", true)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
             } catch (_: Exception) { resumeMic() }
         }, 150)
@@ -180,14 +212,6 @@ class WakeService : Service() {
     fun pauseMic() { main.post { paused = true; stopMic() } }
 
     fun resumeMic() { main.postDelayed({ paused = false; listen() }, 700) }
-
-    private val listener = object : RecognitionListener {
-        override fun onPartialResult(h: String?) = check(h, "partial")
-        override fun onResult(h: String?) = check(h, "text")
-        override fun onFinalResult(h: String?) = check(h, "text")
-        override fun onError(e: Exception?) { stopMic(); if (!paused) main.postDelayed({ listen() }, 2000) }
-        override fun onTimeout() { stopMic(); if (!paused) listen() }
-    }
 
     companion object {
         private const val CH = "maira_wake"
