@@ -194,7 +194,9 @@ Decide what the user wants:
 1) If they want the phone to DO something (play song, open app, call, message, alarm, reminder, volume, wifi, search, read messages, mouse/keyboard), rewrite it as ONE short simple command and reply exactly:
 CMD: <command>
 Simple command forms: "<song name> gaana chalao", "<app> kholo", "<name> ko call karo", "<name> ko message bhejo ki <text>", "alarm <time> baje", "<minutes> minute baad yaad dilana <task>", "volume badhao", "volume kam karo", "pause karo", "agla gaana", "<query> search karo", "whatsapp messages padho", "screen padho", "likho <text>".
-2) Otherwise (question, chat, advice, facts) reply exactly:
+2) If it is a LONG task inside apps needing many taps/steps (e.g. make an image in ChatGPT and download it, subscribe a channel, change a setting, send a photo on WhatsApp), reply exactly:
+CMD: AGENT: <the goal in short>
+3) Otherwise (question, chat, advice, facts) reply exactly:
 ANS: <answer in 1-3 short sentences>
 Answer language: """
 

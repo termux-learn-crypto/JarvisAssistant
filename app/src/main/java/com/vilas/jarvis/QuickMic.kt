@@ -185,6 +185,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     companion object { @Volatile var open = 0 }
 
     private fun endSession() {
+        Agent.cancel = true
         closing = true
         session = false
         MairaAccessibilityService.instance?.let { svc -> try { svc.labels("hide", 0) } catch (_: Exception) {} }
