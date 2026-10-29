@@ -154,6 +154,41 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun apiKey() = prefs.getString("api_key", "") ?: ""
     private fun model() = (prefs.getString("model", "") ?: "").ifBlank { Brain.DEFAULT_MODEL }
 
+    private fun applyWake() {
+        if (!prefs.getBoolean("wake", false)) { WakeService.stop(this); return }
+        if (MairaAccessibilityService.instance == null)
+            log("Maira", "Wake word ke baad mic khulne ke liye Accessibility mein Maira on rakho.")
+        if (WakeModel.ready(this)) {
+            WakeService.start(this)
+            log("Maira", "Ab bolo \"Hey Maira\", main sun rahi hoon.")
+            return
+        }
+        log("Maira", "Wake word model download ho raha hai (37 MB)…")
+        var last = -10
+        WakeModel.download(this, progress = { p ->
+            if (p >= last + 10) { last = p; runOnUiThread { log("Maira", "Download: $p%") } }
+        }, done = { err ->
+            runOnUiThread {
+                if (err != null) log("Maira", "Download fail: $err. Net check karke settings se dobara on karo.")
+                else { WakeService.start(this); log("Maira", "Ho gaya! Ab bolo \"Hey Maira\".") }
+            }
+        })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        WakeService.instance?.pauseMic()
+        if (prefs.getBoolean("wake", false) && WakeService.instance == null && WakeModel.ready(this)) {
+            try { WakeService.start(this) } catch (_: Exception) {}
+            android.os.Handler(mainLooper).postDelayed({ WakeService.instance?.pauseMic() }, 1500)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (QuickMicActivity.open == 0) WakeService.instance?.resumeMic()
+    }
+
     private fun showOfflineAi() {
         val status = TextView(this).apply { setPadding(dp(20), dp(8), dp(20), dp(8)); text = LocalLlm.status(this@MainActivity) }
         val h = android.os.Handler(mainLooper)
@@ -225,8 +260,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             text = "Screen control on karo (Accessibility)"
             setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         }
+        val wakeBox = android.widget.CheckBox(this).apply {
+            text = "\"Hey Maira\" bolne pe khud suno (wake word)"
+            isChecked = prefs.getBoolean("wake", false)
+        }
         box.addView(skipBox)
         box.addView(micBox)
+        box.addView(wakeBox)
         box.addView(accBtn)
         val aiBtn = Button(this).apply {
             isAllCaps = false
@@ -244,7 +284,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     .putString("model", modelField.text.toString().trim())
                     .putBoolean("autoskip", skipBox.isChecked)
                     .putBoolean("quickmic", micBox.isChecked)
+                    .putBoolean("wake", wakeBox.isChecked)
                     .apply()
+                applyWake()
                 QuickMic.refreshNotification(this)
                 log("Maira", "Settings save ho gayi.")
             }

@@ -11,8 +11,8 @@ android {
         applicationId = "com.vilas.jarvis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "3.0.1"
+        versionCode = 15
+        versionName = "3.1"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
@@ -40,4 +40,6 @@ android {
 
 dependencies {
     implementation("com.google.mediapipe:tasks-genai:0.10.24")
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }
