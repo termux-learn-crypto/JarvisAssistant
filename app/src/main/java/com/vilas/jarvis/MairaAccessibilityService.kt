@@ -23,7 +23,68 @@ class MairaAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    private var lastSkipCheck = 0L
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val e = event ?: return
+        val pkg = e.packageName?.toString() ?: return
+        when (e.eventType) {
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> captureNotification(e, pkg)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> if (pkg == YT) maybeSkipAd()
+        }
+    }
+
+    private fun captureNotification(e: AccessibilityEvent, pkg: String) {
+        if (pkg == packageName || pkg == "android" || Safety.isBlocked(pkg)) return
+        val n = e.parcelableData as? android.app.Notification
+        val title = n?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() ?: ""
+        val body = n?.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+            ?: e.text.joinToString(" ")
+        if (title.isBlank() && body.isBlank()) return
+        val appLabel = try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+        } catch (_: Exception) { pkg }
+        if (Safety.isBlocked(appLabel)) return
+        val time = java.text.SimpleDateFormat("HH:mm", Locale.ENGLISH).format(java.util.Date())
+        val line = Safety.maskOtp("[$time] $appLabel - $title: $body").take(400)
+        synchronized(notes) {
+            if (notes.firstOrNull() == line) return
+            notes.add(0, line)
+            while (notes.size > 40) notes.removeAt(notes.size - 1)
+        }
+    }
+
+    private fun maybeSkipAd() {
+        if (!getSharedPreferences("jarvis", MODE_PRIVATE).getBoolean("autoskip", true)) return
+        val now = System.currentTimeMillis()
+        if (now - lastSkipCheck < 600) return
+        lastSkipCheck = now
+        val r = root() ?: return
+        val byId = r.findAccessibilityNodeInfosByViewId("$YT:id/skip_ad_button") +
+            r.findAccessibilityNodeInfosByViewId("$YT:id/modern_skip_ad_text")
+        val candidates = byId.ifEmpty {
+            listOf("Skip ad", "Skip ads", "Skip", "विज्ञापन छोड़ें").flatMap { r.findAccessibilityNodeInfosByText(it) }
+                .filter { val l = label(it).lowercase(Locale.ROOT); l.startsWith("skip") || l.contains("छोड़ें") }
+        }
+        for (c in candidates) {
+            if (!c.isVisibleToUser) continue
+            var n: AccessibilityNodeInfo? = c
+            while (n != null && !n.isClickable) n = n.parent
+            if ((n ?: c).performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+        }
+    }
+
+    /** Screen pe dikh raha text (password chhod ke), upar se neeche. */
+    fun screenText(): String {
+        val seen = LinkedHashSet<String>()
+        for (n in allNodes()) {
+            if (!n.isVisibleToUser || n.isPassword) continue
+            val t = label(n).replace(Regex("\\s+"), " ").trim()
+            if (t.length >= 2) seen.add(t)
+        }
+        return Safety.maskOtp(seen.joinToString("\n")).take(5000)
+    }
     override fun onInterrupt() {}
 
     private fun root(): AccessibilityNodeInfo? = rootInActiveWindow
@@ -98,5 +159,12 @@ class MairaAccessibilityService : AccessibilityService() {
 
     companion object {
         @Volatile var instance: MairaAccessibilityService? = null
+        private const val YT = "com.google.android.youtube"
+        private val notes = mutableListOf<String>()
+
+        fun recentNotifications(app: String): List<String> = synchronized(notes) {
+            val a = app.trim().lowercase(Locale.ROOT)
+            notes.filter { a.isEmpty() || it.lowercase(Locale.ROOT).contains(a) }.take(15)
+        }
     }
 }

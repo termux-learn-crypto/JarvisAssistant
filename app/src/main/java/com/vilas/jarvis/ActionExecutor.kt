@@ -31,17 +31,7 @@ class ActionExecutor(private val activity: Activity) {
 
     private val ctx: Context get() = activity
 
-    // Safety: ye apps kabhi open nahi honge (banking / UPI / password managers)
-    private val blockedWords = listOf(
-        "bank", "pay", "paisa", "upi", "gpay", "phonepe", "paytm", "bhim", "wallet", "sbi", "hdfc", "icici",
-        "axis", "kotak", "yono", "imobile", "cred", "password", "authenticator", "lastpass",
-        "bitwarden", "1password", "keepass", "gallery vault", "locker"
-    )
-
-    private fun isBlocked(text: String): Boolean {
-        val t = text.lowercase(Locale.ROOT)
-        return blockedWords.any { t.contains(it) }
-    }
+    private fun isBlocked(text: String): Boolean = Safety.isBlocked(text)
 
     fun execute(a: Action): String = try {
         when (a.tool) {
