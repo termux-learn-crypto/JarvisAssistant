@@ -154,6 +154,35 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun apiKey() = prefs.getString("api_key", "") ?: ""
     private fun model() = (prefs.getString("model", "") ?: "").ifBlank { Brain.DEFAULT_MODEL }
 
+    private fun showOfflineAi() {
+        val status = TextView(this).apply { setPadding(dp(20), dp(8), dp(20), dp(8)); text = LocalLlm.status(this@MainActivity) }
+        val h = android.os.Handler(mainLooper)
+        val tick = object : Runnable {
+            override fun run() { status.text = LocalLlm.status(this@MainActivity); h.postDelayed(this, 1500) }
+        }
+        val names = LocalLlm.MODELS.map { it.label }.toTypedArray()
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Offline AI dimaag")
+            .setView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(this@MainActivity).apply {
+                    setPadding(dp(20), dp(4), dp(20), 0)
+                    text = "Neeche se ek chuno, ek baar download hoga (WiFi behtar). Phir bina API key aur bina internet ke sawal-jawab aur mushkil commands samjhegi. 6 GB RAM pe 'Behtar' achha chalega."
+                })
+                addView(status)
+            })
+            .setItems(names) { _, i ->
+                LocalLlm.download(this, LocalLlm.MODELS[i])
+                log("Maira", "Download shuru: ${LocalLlm.MODELS[i].label}. Notification mein progress dikhega.")
+            }
+            .setNeutralButton("Delete model") { _, _ -> LocalLlm.delete(this); log("Maira", "Offline model hata diya.") }
+            .setNegativeButton("Band karo", null)
+            .create()
+        dlg.setOnDismissListener { h.removeCallbacks(tick) }
+        dlg.show()
+        h.post(tick)
+    }
+
     private fun showSettings() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -199,9 +228,16 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         box.addView(skipBox)
         box.addView(micBox)
         box.addView(accBtn)
+        val aiBtn = Button(this).apply {
+            isAllCaps = false
+            text = "Offline AI dimaag (bina key)"
+            setOnClickListener { showOfflineAi() }
+        }
+        box.addView(aiBtn)
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
         AlertDialog.Builder(this)
             .setTitle("Maira Settings")
-            .setView(box)
+            .setView(scroll)
             .setPositiveButton("Save") { _, _ ->
                 prefs.edit()
                     .putString("api_key", keyField.text.toString().trim())

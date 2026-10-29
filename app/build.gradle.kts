@@ -11,8 +11,9 @@ android {
         applicationId = "com.vilas.jarvis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.2"
+        versionCode = 13
+        versionName = "3.0"
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     buildTypes {
@@ -25,4 +26,6 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
-dependencies { }
+dependencies {
+    implementation("com.google.mediapipe:tasks-genai:0.10.24")
+}
