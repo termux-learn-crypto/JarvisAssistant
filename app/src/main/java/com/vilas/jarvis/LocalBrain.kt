@@ -172,6 +172,61 @@ object LocalBrain {
                 }
             }
 
+        // ---- Keyboard ----
+        val typeM = Regex("(?:^|\\s)(?:likho|likh do|type karo|type|लिखो|लिख दो|टाइप करो|लिहा)\\s+(.+)$").find(t)
+            ?: Regex("^\\s*(.+?)\\s+(?:likho|likh do|type karo|लिखो|लिख दो|टाइप करो|लिहा)\\s*$").find(t)
+        if (typeM != null && !has(t, "message bhejo", "मैसेज भेजो")) {
+            val txt = typeM.groupValues[1].trim()
+            if (txt.isNotBlank()) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "type", "text" to txt))
+        }
+        if (has(t, "sab mitao", "sab delete", "clear karo", "clear", "saaf karo", "सब मिटाओ", "सब डिलीट", "क्लियर")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "clear"))
+        if (has(t, "shabd mitao", "word delete", "word mitao", "शब्द मिटाओ")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "delete_word", "count" to (num(t) ?: 1)))
+        if (has(t, "mitao", "backspace", "delete", "मिटाओ", "डिलीट", "बैकस्पेस", "पुसा")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "backspace", "count" to (num(t) ?: 1)))
+        if (has(t, "select all", "sab select", "सब सेलेक्ट", "सिलेक्ट ऑल")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "select_all"))
+        if (has(t, "copy", "कॉपी")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "copy"))
+        if (has(t, "paste", "पेस्ट")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "paste"))
+        if (has(t, "cut karo", "कट करो")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "cut"))
+        if (has(t, "enter", "एंटर")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "enter"))
+        if (has(t, "space", "स्पेस")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "space"))
+        if (has(t, "agla box", "next box", "next field", "अगला बॉक्स")) return plan(ctx, Say("", "", ""), "keyboard" to p("action" to "next_field"))
+
+        // ---- Number labels ----
+        if (has(t, "number dikhao", "numbers dikhao", "label dikhao", "labels dikhao", "show numbers", "नंबर दिखाओ", "नंबर दाखव"))
+            return plan(ctx, Say("", "", ""), "labels" to p("action" to "show"))
+        if (has(t, "number hatao", "numbers hatao", "label hatao", "hide numbers", "नंबर हटाओ"))
+            return plan(ctx, Say("", "", ""), "labels" to p("action" to "hide"))
+        val tapWords = arrayOf("dabao", "daba do", "dabaao", "click", "tap", "press", "दबाओ", "दबा दो", "क्लिक", "टैप", "दाब")
+        val longP = has(t, "long press", "der tak", "देर तक", "लॉन्ग प्रेस")
+        val n = num(t)
+        if (n != null && (tapWords.any { has(t, it) } || longP || t.trim() == n.toString()) && !has(t, "volume", "alarm", "call"))
+            return plan(ctx, Say("", "", ""), "labels" to p("action" to if (longP) "long_press" else "tap", "number" to n))
+
+        // ---- Mouse ----
+        if (has(t, "mouse", "cursor", "माउस", "कर्सर")) {
+            if (has(t, "band", "hatao", "off", "hide", "बंद", "हटाओ")) return plan(ctx, Say("", "", ""), "mouse" to p("action" to "hide"))
+            if (!dirOf(t).isNotEmpty() && !tapWords.any { has(t, it) }) return plan(ctx, Say("", "", ""), "mouse" to p("action" to "show"))
+        }
+        if (has(t, "double click", "double tap", "डबल क्लिक", "डबल टैप")) return plan(ctx, Say("", "", ""), "mouse" to p("action" to "double_tap"))
+        if (longP) return plan(ctx, Say("", "", ""), "mouse" to p("action" to "long_press"))
+        if (has(t, "beech mein", "center", "बीच में", "सेंटर")) return plan(ctx, Say("", "", ""), "mouse" to p("action" to "goto", "position" to "center"))
+        val d = dirOf(t)
+        if (d.isNotEmpty() && has(t, "swipe", "स्वाइप")) return plan(ctx, Say("", "", ""), "gesture" to p("action" to "swipe_$d"))
+        if (d.isNotEmpty() && has(t, "scroll", "स्क्रॉल")) {
+            // content neeche dekhna = ungli upar le jao
+            val sw = when (d) { "down" -> "swipe_up"; "up" -> "swipe_down"; "left" -> "swipe_right"; else -> "swipe_left" }
+            return plan(ctx, Say("", "", ""), "gesture" to p("action" to sw))
+        }
+        val playish = has(t, "chalao", "lagao", "bajao", "play", "sunao", "चलाओ", "लगाओ", "बजाओ", "सुनाओ", "लाव", "वाजव")
+        if (d.isNotEmpty() && !playish && t.trim().split(" ").size <= 4) {
+            val amt = when { has(t, "thoda", "thodasa", "थोड़ा", "जरा सा", "little") -> "small"; has(t, "zyada", "jyada", "bahut", "ज़्यादा", "ज्यादा", "बहुत", "more") -> "large"; else -> "medium" }
+            return plan(ctx, Say("", "", ""), "mouse" to p("action" to "move", "direction" to d, "amount" to amt))
+        }
+        if (tapWords.any { has(t, it) }) {
+            val label = strip(t, FILLER + tapWords.toList() + listOf("pe", "par", "ko", "karo", "kar", "do", "button", "mouse", "cursor", "पे", "पर", "को", "करो", "बटन", "माउस", "कर्सर"))
+            if (label.isBlank()) return plan(ctx, Say("", "", ""), "mouse" to p("action" to "tap"))
+            return plan(ctx, Say("$label daba doon?", "$label दबा दूं?", "Tap $label?"), "screen_action" to p("action" to "click", "text" to label, "app_name" to ""))
+        }
+
         // ---- Media controls ----
         if (has(t, "next", "agla", "agle", "agli", "अगला", "अगले", "पुढचं", "पुढचा", "skip")) {
             return plan(ctx, Say("Lo, agla.", "लो, अगला।", "Next one.", "हे घे, पुढचं."), "media_control" to p("action" to "next"))
@@ -225,6 +280,16 @@ object LocalBrain {
             return plan(ctx, Say("Main badhiya! Bolo kya karna hai?", "मैं बढ़िया! बोलो क्या करना है?", "I'm great! What can I do?", "मी मस्त! बोल काय करायचं?"))
         }
         return null
+    }
+
+    private fun num(t: String): Int? = Regex("(?<![\\d:])(\\d{1,3})(?![\\d:])").find(t)?.groupValues?.get(1)?.toInt()
+
+    private fun dirOf(t: String): String = when {
+        has(t, "upar", "up", "ऊपर", "उपर") -> "up"
+        has(t, "neeche", "niche", "down", "नीचे", "खाली") -> "down"
+        has(t, "left", "baaye", "baayein", "bayen", "बाएं", "बाये", "लेफ्ट", "डावीकडे", "डावीकडे") -> "left"
+        has(t, "right", "daaye", "daayein", "dayen", "दाएं", "दाये", "राइट", "उजवीकडे") -> "right"
+        else -> ""
     }
 
     private fun askPlan(ctx: Context, s: Say): Plan {

@@ -54,7 +54,7 @@
             android:taskAffinity="com.vilas.jarvis.quick"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar" />
 
         <service
             android:name=".MairaTileService"
