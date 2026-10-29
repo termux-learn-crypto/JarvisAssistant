@@ -39,10 +39,19 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var busy = false
 
     private val prefs by lazy { getSharedPreferences("jarvis", Context.MODE_PRIVATE) }
-    private val languages = listOf("hi-IN" to "हिंदी", "mr-IN" to "मराठी", "en-IN" to "English")
+    /** recognizer language, TTS language, button label, mode name (model ko bheja jata hai) */
+    private data class Lang(val rec: String, val tts: String, val label: String, val mode: String)
+
+    // Hinglish mode: en-IN recognizer Roman script mein likhta hai, jo Hinglish bolne walon ke liye sabse sahi hai
+    private val languages = listOf(
+        Lang("en-IN", "hi-IN", "Hinglish", "Hinglish (Roman script)"),
+        Lang("hi-IN", "hi-IN", "हिंदी", "Hindi (Devanagari)"),
+        Lang("mr-IN", "mr-IN", "मराठी", "Marathi"),
+        Lang("en-IN", "en-IN", "English", "English")
+    )
     private var langIndex: Int
-        get() = prefs.getInt("lang", 0)
-        set(v) { prefs.edit().putInt("lang", v).apply() }
+        get() = prefs.getInt("lang2", 0).coerceIn(0, languages.size - 1)
+        set(v) { prefs.edit().putInt("lang2", v).apply() }
 
     private val systemPromptTemplate by lazy {
         assets.open("system_prompt.txt").bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -85,9 +94,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setTextColor(Color.parseColor("#4FC3F7"))
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         }
-        langBtn = smallButton(languages[langIndex].second) {
+        langBtn = smallButton(languages[langIndex].label) {
             langIndex = (langIndex + 1) % languages.size
-            langBtn.text = languages[langIndex].second
+            langBtn.text = languages[langIndex].label
             applyTtsLanguage()
         }
         val settingsBtn = smallButton("⚙") { showSettings() }
@@ -207,12 +216,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     // ---------------- Voice ----------------
 
     private fun startListening() {
-        val lang = languages[langIndex].first
+        val lang = languages[langIndex].rec
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
             .putExtra(RecognizerIntent.EXTRA_PROMPT, "Boliye…")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(i, REQ_SPEECH)
@@ -236,8 +246,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun applyTtsLanguage() {
-        val (code, _) = languages[langIndex]
-        val parts = code.split("-")
+        val parts = languages[langIndex].tts.split("-")
         tts?.setLanguage(Locale(parts[0], parts[1]))
     }
 
@@ -276,9 +285,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         log("Jarvis", "Soch raha hoon…")
         val model = model()
         val prompt = buildSystemPrompt()
+        val userMsg = "Voice mode: ${languages[langIndex].mode}\nCommand: $text"
         Thread {
             val result = try {
-                Result.success(Plan.parse(GeminiClient(key, model).generate(prompt, text)))
+                Result.success(Plan.parse(GeminiClient(key, model).generate(prompt, userMsg)))
             } catch (e: Exception) {
                 Result.failure(e)
             }
