@@ -96,6 +96,8 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        open++
+        WakeService.instance?.pauseMic()
         executor = ActionExecutor(this)
         setFinishOnTouchOutside(false)
         window.apply {
@@ -149,8 +151,12 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         closing = true
         recognizer?.destroy()
         tts?.shutdown()
+        open = (open - 1).coerceAtLeast(0)
+        if (open == 0) WakeService.instance?.resumeMic()
         super.onDestroy()
     }
+
+    companion object { @Volatile var open = 0 }
 
     private fun endSession() {
         closing = true
