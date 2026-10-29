@@ -182,17 +182,18 @@ class WakeService : Service() {
                 if (rec.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("mic")
                 if (AcousticEchoCanceler.isAvailable()) aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
                 if (NoiseSuppressor.isAvailable()) ns = NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true }
-                vr = try { Recognizer(m, 16000f, grammar) } catch (_: Exception) { Recognizer(m, 16000f) }
+                val r0 = try { Recognizer(m, 16000f, grammar) } catch (_: Exception) { Recognizer(m, 16000f) }
+                vr = r0
                 rec.startRecording()
                 val buf = ByteArray(4096)
                 var sinceReset = 0
                 while (running) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n <= 0) continue
-                    if (vr.acceptWaveForm(buf, n)) { check(vr.result, "text"); sinceReset = 0 }
-                    else check(vr.partialResult, "partial")
+                    if (r0.acceptWaveForm(buf, n)) { check(r0.result, "text"); sinceReset = 0 }
+                    else check(r0.partialResult, "partial")
                     sinceReset += n
-                    if (sinceReset > 16000 * 2 * 8) { vr.reset(); sinceReset = 0 }  // lambi baat-cheet/gaana: har 8s reset
+                    if (sinceReset > 16000 * 2 * 8) { r0.reset(); sinceReset = 0 }  // lambi baat-cheet/gaana: har 8s reset
                 }
             } catch (e: Exception) {
                 if (running && !paused) main.postDelayed({ loop = null; listen() }, 3000)
