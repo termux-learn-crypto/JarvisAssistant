@@ -206,39 +206,54 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun showOfflineAi() {
-        val status = TextView(this).apply { setPadding(dp(20), dp(8), dp(20), dp(8)); text = LocalLlm.status(this@MainActivity) }
+        val status = TextView(this).apply { setPadding(dp(4), dp(8), dp(4), dp(8)); text = LocalLlm.status(this@MainActivity) }
         val h = android.os.Handler(mainLooper)
-        val tick = object : Runnable {
-            override fun run() { status.text = LocalLlm.status(this@MainActivity); h.postDelayed(this, 1500) }
-        }
-        val names = LocalLlm.MODELS.map { it.label }.toTypedArray()
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("Offline AI dimaag")
-            .setView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(TextView(this@MainActivity).apply {
-                    setPadding(dp(20), dp(4), dp(20), 0)
-                    text = "Neeche se ek chuno, ek baar download hoga (WiFi behtar). Phir bina API key aur bina internet ke sawal-jawab aur mushkil commands samjhegi. 6 GB RAM pe 'Behtar' achha chalega."
-                })
-                addView(status)
-            })
-            .setItems(names) { _, i ->
-                val m = LocalLlm.MODELS[i]
-                if (LocalLlm.complete(this, m)) {
-                    prefs.edit().putString("llm", m.id).apply()
-                    log("Maira", "${m.label} pehle se phone mein hai, wahi use karungi. Download ki zarurat nahi.")
-                    return@setItems
-                }
-                AlertDialog.Builder(this)
-                    .setMessage("${m.label} download karun? Agar ye file pehle se phone mein hai to 'Phone se lagao' use karo.")
-                    .setPositiveButton("Download") { _, _ ->
-                        LocalLlm.download(this, m)
-                        log("Maira", "Download shuru: ${m.label}. Ye Download/Maira folder mein save hoga, update ke baad bhi rahega.")
-                    }
-                    .setNegativeButton("Phone se lagao") { _, _ -> pickModelFile() }
-                    .show()
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), 0) }
+        var dlg: AlertDialog? = null
+        col.addView(TextView(this).apply {
+            text = "Ek model chuno, ek baar download hoga (WiFi behtar). Phir bina API key aur bina internet ke sawal-jawab samjhegi. 6 GB RAM pe 'Behtar' achha chalega. File Download/Maira folder mein save hoti hai."
+        })
+        col.addView(status)
+        val btns = mutableListOf<Pair<android.widget.Button, LocalLlm.Model>>()
+        fun refreshBtns() {
+            btns.forEach { (b, m) ->
+                b.text = if (LocalLlm.complete(this, m)) "✓ ${m.label} — ready (use karo)" else "⬇ Download: ${m.label}"
             }
-            .setNeutralButton("Phone se lagao") { _, _ -> pickModelFile() }
+        }
+        LocalLlm.MODELS.forEach { m ->
+            val b = android.widget.Button(this).apply {
+                isAllCaps = false
+                setOnClickListener {
+                    if (LocalLlm.complete(this@MainActivity, m)) {
+                        prefs.edit().putString("llm", m.id).apply()
+                        log("Maira", "${m.label} pehle se phone mein hai, wahi use karungi.")
+                    } else {
+                        LocalLlm.download(this@MainActivity, m)
+                        log("Maira", "Download shuru: ${m.label}. Notification mein progress dikhega.")
+                    }
+                    status.text = LocalLlm.status(this@MainActivity)
+                }
+            }
+            btns += b to m
+            col.addView(b)
+        }
+        col.addView(android.widget.Button(this).apply {
+            isAllCaps = false
+            text = "📁 Phone mein pehle se file hai? Yahan se lagao"
+            setOnClickListener { dlg?.dismiss(); pickModelFile() }
+        })
+        col.addView(android.widget.Button(this).apply {
+            isAllCaps = false
+            text = "🗑 Model delete karo"
+            setOnClickListener { LocalLlm.delete(this@MainActivity); log("Maira", "Offline model hata diya."); refreshBtns(); status.text = LocalLlm.status(this@MainActivity) }
+        })
+        refreshBtns()
+        val tick = object : Runnable {
+            override fun run() { status.text = LocalLlm.status(this@MainActivity); refreshBtns(); h.postDelayed(this, 1500) }
+        }
+        dlg = AlertDialog.Builder(this)
+            .setTitle("Offline AI dimaag")
+            .setView(android.widget.ScrollView(this).apply { addView(col) })
             .setNegativeButton("Band karo", null)
             .create()
         dlg.setOnDismissListener { h.removeCallbacks(tick) }
