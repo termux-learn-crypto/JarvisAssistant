@@ -40,23 +40,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var busy = false
 
     private val prefs by lazy { getSharedPreferences("jarvis", Context.MODE_PRIVATE) }
-    /** recognizer language, TTS language, button label, mode name (model ko bheja jata hai) */
-    private data class Lang(val rec: String, val tts: String, val label: String, val mode: String)
-
-    // Hinglish mode: en-IN recognizer Roman script mein likhta hai, jo Hinglish bolne walon ke liye sabse sahi hai
-    private val languages = listOf(
-        Lang("en-IN", "hi-IN", "Hinglish", "Hinglish (Roman script)"),
-        Lang("hi-IN", "hi-IN", "हिंदी", "Hindi (Devanagari)"),
-        Lang("mr-IN", "mr-IN", "मराठी", "Marathi"),
-        Lang("en-IN", "en-IN", "English", "English")
-    )
+    private val languages = Brain.languages
     private var langIndex: Int
         get() = prefs.getInt("lang2", 0).coerceIn(0, languages.size - 1)
         set(v) { prefs.edit().putInt("lang2", v).apply() }
-
-    private val systemPromptTemplate by lazy {
-        assets.open("system_prompt.txt").bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +53,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         askPermissions()
         log("Maira", "Hey Vilas! Main Maira. Mic dabao aur bindaas bolo.")
         if (apiKey().isBlank()) showSettings()
+        QuickMic.refreshNotification(this)
     }
 
     override fun onDestroy() {
@@ -165,7 +153,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     // ---------------- Settings ----------------
 
     private fun apiKey() = prefs.getString("api_key", "") ?: ""
-    private fun model() = (prefs.getString("model", "") ?: "").ifBlank { DEFAULT_MODEL }
+    private fun model() = (prefs.getString("model", "") ?: "").ifBlank { Brain.DEFAULT_MODEL }
 
     private fun showSettings() {
         val box = LinearLayout(this).apply {
@@ -181,7 +169,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val modelField = EditText(this).apply {
-            hint = "Model (default $DEFAULT_MODEL)"
+            hint = "Model (default ${Brain.DEFAULT_MODEL})"
             setText(prefs.getString("model", ""))
         }
         val voiceBtn = Button(this).apply {
@@ -196,6 +184,22 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         box.addView(keyField)
         box.addView(modelField)
         box.addView(voiceBtn)
+        val skipBox = android.widget.CheckBox(this).apply {
+            text = "YouTube ads khud skip karo"
+            isChecked = prefs.getBoolean("autoskip", true)
+        }
+        val micBox = android.widget.CheckBox(this).apply {
+            text = "Notification mein quick mic dikhao"
+            isChecked = prefs.getBoolean("quickmic", true)
+        }
+        val accBtn = Button(this).apply {
+            isAllCaps = false
+            text = "Screen control on karo (Accessibility)"
+            setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }
+        box.addView(skipBox)
+        box.addView(micBox)
+        box.addView(accBtn)
         AlertDialog.Builder(this)
             .setTitle("Maira Settings")
             .setView(box)
@@ -203,7 +207,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 prefs.edit()
                     .putString("api_key", keyField.text.toString().trim())
                     .putString("model", modelField.text.toString().trim())
+                    .putBoolean("autoskip", skipBox.isChecked)
+                    .putBoolean("quickmic", micBox.isChecked)
                     .apply()
+                QuickMic.refreshNotification(this)
                 log("Maira", "Settings save ho gayi.")
             }
             .setNegativeButton("Cancel", null)
@@ -216,7 +223,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val perms = mutableListOf(
             Manifest.permission.SEND_SMS,
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_CONTACTS
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.RECORD_AUDIO
         )
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         val missing = perms.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
@@ -323,14 +331,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun buildSystemPrompt(): String {
-        val now = Date()
-        val dt = SimpleDateFormat("yyyy-MM-dd HH:mm EEEE", Locale.ENGLISH).format(now)
-        return systemPromptTemplate
-            .replace("{{CURRENT_DATETIME}}", dt)
-            .replace("{{TIMEZONE}}", TimeZone.getDefault().id)
-    }
-
     private fun handleCommand(text: String) {
         if (busy) return
         val key = apiKey()
@@ -342,12 +342,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         log("Aap", text)
         busy = true
         log("Maira", "Ek sec…")
-        val model = model()
-        val prompt = buildSystemPrompt()
-        val userMsg = "Voice mode: ${languages[langIndex].mode}\nCommand: $text"
         Thread {
             val result = try {
-                Result.success(Plan.parse(GeminiClient(key, model).generate(prompt, userMsg)))
+                Result.success(Brain.plan(this, text))
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -379,49 +376,24 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun runActions(plan: Plan, announce: Boolean) {
         if (announce && plan.reply.isNotBlank()) log("Maira", plan.reply)
-        val spoken = StringBuilder()
-        if (announce) spoken.append(plan.speech)
-        val speakFirst = spoken.toString().trim()
-        val hasScreen = plan.actions.any { it.tool == "screen_action" }
-        // Screen control mein pehle bol do, warna app badalne ke baad awaaz kat sakti hai
-        if (hasScreen && speakFirst.isNotBlank()) speak(speakFirst)
-
+        val speakFirst = if (announce) plan.speech.trim() else ""
+        val leaves = plan.actions.any { it.tool == "screen_action" || it.tool == "read_screen" || it.tool == "open_app" }
+        // App badalne se pehle bol do, warna awaaz kat sakti hai
+        if (leaves && speakFirst.isNotBlank()) speak(speakFirst)
         Thread {
-            val extra = StringBuilder()
-            for (a in plan.actions) {
-                val status = executor.execute(a)
-                runOnUiThread { log("  ⚙", status) }
-                if (a.tool == "read_battery") extra.append(" ").append(batterySpeech())
-                val opensApp = a.tool == "open_app" ||
-                    (a.tool == "screen_action" && a.params.optString("action") == "open")
-                // Agle screen step se pehle app/screen ko load hone do
-                if (plan.actions.size > 1) {
-                    try { Thread.sleep(if (opensApp) 2200L else if (a.tool == "screen_action") 900L else 150L) } catch (_: InterruptedException) {}
-                }
-            }
+            val extra = Brain.execute(this, executor, plan,
+                log = { w, m -> runOnUiThread { log(w, m) } },
+                hideSelf = { moveTaskToBack(true) })
             runOnUiThread {
-                val text = if (hasScreen) extra.toString().trim() else (speakFirst + extra).trim()
-                speak(text)
+                speak(if (leaves) extra else (speakFirst + " " + extra).trim())
             }
         }.start()
     }
 
     private fun isIndicTts() = languages[langIndex].tts != "en-IN"
 
-    private fun batterySpeech(): String {
-        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
-        val pct = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        val charging = bm.isCharging
-        return if (isIndicTts()) {
-            "बैटरी $pct परसेंट है" + if (charging) ", चार्ज हो रही है।" else if (pct <= 20) ", जल्दी चार्जर लगा लो।" else "।"
-        } else {
-            "Battery is at $pct percent" + if (charging) ", and charging." else "."
-        }
-    }
-
     companion object {
         private const val REQ_SPEECH = 101
         private const val REQ_PERMS = 102
-        private const val DEFAULT_MODEL = "gemini-2.5-flash"
     }
 }
