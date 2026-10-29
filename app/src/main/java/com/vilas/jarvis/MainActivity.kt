@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -63,7 +64,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         buildUi()
         tts = TextToSpeech(this, this)
         askPermissions()
-        log("Jarvis", "Namaste Vilas! Mic dabao ya command type karo.")
+        log("Maira", "Hey Vilas! Main Maira. Mic dabao aur bindaas bolo.")
         if (apiKey().isBlank()) showSettings()
     }
 
@@ -88,7 +89,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(this).apply {
-            text = "JARVIS"
+            text = "MAIRA"
             textSize = 26f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#4FC3F7"))
@@ -183,18 +184,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             hint = "Model (default $DEFAULT_MODEL)"
             setText(prefs.getString("model", ""))
         }
+        val voiceBtn = Button(this).apply {
+            isAllCaps = false
+            text = "Awaaz badlo (${voiceIndexLabel()})"
+            setOnClickListener {
+                nextVoice()
+                text = "Awaaz badlo (${voiceIndexLabel()})"
+            }
+        }
         box.addView(info)
         box.addView(keyField)
         box.addView(modelField)
+        box.addView(voiceBtn)
         AlertDialog.Builder(this)
-            .setTitle("Jarvis Settings")
+            .setTitle("Maira Settings")
             .setView(box)
             .setPositiveButton("Save") { _, _ ->
                 prefs.edit()
                     .putString("api_key", keyField.text.toString().trim())
                     .putString("model", modelField.text.toString().trim())
                     .apply()
-                log("Jarvis", "Settings save ho gayi.")
+                log("Maira", "Settings save ho gayi.")
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -227,7 +237,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             @Suppress("DEPRECATION")
             startActivityForResult(i, REQ_SPEECH)
         } catch (e: ActivityNotFoundException) {
-            log("Jarvis", "Is phone pe voice input nahi mila. Google app install/update karo.")
+            log("Maira", "Is phone pe voice input nahi mila. Google app install/update karo.")
         }
     }
 
@@ -245,14 +255,63 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (ttsReady) applyTtsLanguage()
     }
 
-    private fun applyTtsLanguage() {
+    private fun ttsLocale(): Locale {
         val parts = languages[langIndex].tts.split("-")
-        tts?.setLanguage(Locale(parts[0], parts[1]))
+        return Locale(parts[0], parts[1])
+    }
+
+    /** Is language ki installed voices, achhi quality pehle. */
+    private fun voicesForLang(): List<Voice> {
+        val loc = ttsLocale()
+        val all = try { tts?.voices?.toList() ?: emptyList() } catch (e: Exception) { emptyList() }
+        return all.filter {
+            it.locale.language == loc.language &&
+                !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+        }.sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.isNetworkConnectionRequired }.thenBy { it.name })
+    }
+
+    private fun voicePrefKey() = "voice_" + languages[langIndex].tts
+
+    private fun applyTtsLanguage() {
+        val t = tts ?: return
+        t.setLanguage(ttsLocale())
+        // Dost jaisi awaaz: thodi upar pitch, normal se thodi tez
+        t.setPitch(1.12f)
+        t.setSpeechRate(1.05f)
+        val saved = prefs.getString(voicePrefKey(), null)
+        val voices = voicesForLang()
+        val v = voices.firstOrNull { it.name == saved }
+            ?: voices.firstOrNull { it.name.contains("female", true) }
+            ?: voices.firstOrNull()
+        if (v != null) t.setVoice(v)
+    }
+
+    private fun voiceIndexLabel(): String {
+        val voices = voicesForLang()
+        if (voices.isEmpty()) return "default"
+        val cur = tts?.voice?.name
+        val i = voices.indexOfFirst { it.name == cur }
+        return "${if (i >= 0) i + 1 else 1}/${voices.size}"
+    }
+
+    private fun nextVoice() {
+        val voices = voicesForLang()
+        if (voices.isEmpty()) return
+        val cur = tts?.voice?.name
+        val i = voices.indexOfFirst { it.name == cur }
+        val v = voices[(i + 1) % voices.size]
+        tts?.setVoice(v)
+        prefs.edit().putString(voicePrefKey(), v.name).apply()
+        speak("Hey! Main Maira. Ye awaaz kaisi lagi?")
     }
 
     private fun speak(text: String) {
-        if (ttsReady && text.isNotBlank()) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
+        if (ttsReady && text.isNotBlank()) tts?.speak(clean(text), TextToSpeech.QUEUE_FLUSH, null, "maira")
     }
+
+    /** Emoji aur symbols hatao taki TTS ajeeb na padhe. */
+    private fun clean(text: String): String =
+        text.replace(Regex("[\\p{So}\\p{Cn}*_#`~|<>]"), " ").replace(Regex("\\s+"), " ").trim()
 
     // ---------------- Brain ----------------
 
@@ -276,13 +335,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (busy) return
         val key = apiKey()
         if (key.isBlank()) {
-            log("Jarvis", "Pehle settings mein Gemini API key daalo.")
+            log("Maira", "Pehle settings mein Gemini API key daalo.")
             showSettings()
             return
         }
         log("Aap", text)
         busy = true
-        log("Jarvis", "Soch raha hoon…")
+        log("Maira", "Ek sec…")
         val model = model()
         val prompt = buildSystemPrompt()
         val userMsg = "Voice mode: ${languages[langIndex].mode}\nCommand: $text"
@@ -296,7 +355,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 busy = false
                 result.fold(
                     onSuccess = { onPlan(it) },
-                    onFailure = { log("Jarvis", "Error: ${it.message}") }
+                    onFailure = { log("Maira", "Error: ${it.message}") }
                 )
             }
         }.start()
@@ -304,13 +363,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun onPlan(plan: Plan) {
         if (plan.confirmationRequired) {
-            log("Jarvis", plan.reply)
+            log("Maira", plan.reply)
             speak(plan.reply)
             AlertDialog.Builder(this)
-                .setTitle("Confirm karein?")
+                .setTitle("Kar doon?")
                 .setMessage(plan.reply + "\n\n" + plan.describe())
-                .setPositiveButton("Haan") { _, _ -> runActions(plan, announce = false) }
-                .setNegativeButton("Nahi") { _, _ -> log("Jarvis", "Theek hai, cancel kar diya.") }
+                .setPositiveButton("Haan, kar do") { _, _ -> runActions(plan, announce = false) }
+                .setNegativeButton("Rehne do") { _, _ -> log("Maira", "Ok, nahi karti.") }
                 .setCancelable(false)
                 .show()
         } else {
@@ -321,7 +380,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun runActions(plan: Plan, announce: Boolean) {
         val spoken = StringBuilder()
         if (announce && plan.reply.isNotBlank()) {
-            log("Jarvis", plan.reply)
+            log("Maira", plan.reply)
             spoken.append(plan.reply)
         }
         for (a in plan.actions) {

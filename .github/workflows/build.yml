@@ -27,19 +27,19 @@ jobs:
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Jarvis.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Maira.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Jarvis-apk
-          path: Jarvis.apk
+          name: Maira.apk
+          path: Maira.apk
 
       - name: Publish to Releases (latest)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: Jarvis latest build
-          body: "Phone pe Jarvis.apk download karke install karo."
+          name: Maira latest build
+          body: "Phone pe Maira.apk download karke install karo."
           prerelease: false
           make_latest: true
-          files: Jarvis.apk
+          files: Maira.apk

@@ -1,9 +1,9 @@
-# Jarvis – Android voice assistant (Hindi / Marathi / English)
+# Maira – Android voice assistant (Hindi / Marathi / English)
 
 Bolo ya type karo, Gemini AI command samajh ke action plan banata hai, aur app use phone pe chalaati hai.
 
 ## Install
-1. Repo ke **Releases → latest** se `Jarvis.apk` download karo.
+1. Repo ke **Releases → latest** se `Maira.apk` download karo.
 2. Install karo ("unknown apps" allow karna padega).
 3. App kholte hi ⚙ Settings mein apni Gemini API key daalo (free: https://aistudio.google.com/apikey).
 4. Permissions (SMS, Call, Contacts, Notifications) allow karo.

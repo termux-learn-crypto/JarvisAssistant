@@ -191,7 +191,7 @@ class ActionExecutor(private val activity: Activity) {
             ?: return "\"$who\" ka number contacts mein nahi mila."
         val uri = Uri.parse("tel:$number")
         return if (has(Manifest.permission.CALL_PHONE)) {
-            if (start(Intent(Intent.ACTION_CALL, uri))) "Call kar raha hoon: $who" else "Call nahi ho paya."
+            if (start(Intent(Intent.ACTION_CALL, uri))) "Call laga rahi hoon: $who" else "Call nahi ho paya."
         } else {
             if (start(Intent(Intent.ACTION_DIAL, uri))) "Dialer khol diya: $who" else "Dialer nahi mila."
         }
@@ -199,7 +199,7 @@ class ActionExecutor(private val activity: Activity) {
 
     private fun openApp(name: String): String {
         if (name.isBlank()) return "App ka naam nahi mila."
-        if (isBlocked(name)) return "Safety ke liye ye app main nahi kholta."
+        if (isBlocked(name)) return "Ye app safety ke liye main nahi kholti, yaar."
         val pm = ctx.packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = pm.queryIntentActivities(launcher, 0)
@@ -210,7 +210,7 @@ class ActionExecutor(private val activity: Activity) {
             ?: return "\"$name\" app phone mein nahi mila."
         val label = match.loadLabel(pm).toString()
         if (isBlocked(label) || isBlocked(match.activityInfo.packageName)) {
-            return "Safety ke liye ye app main nahi kholta."
+            return "Ye app safety ke liye main nahi kholti, yaar."
         }
         val i = pm.getLaunchIntentForPackage(match.activityInfo.packageName)
             ?: return "\"$label\" khul nahi paya."
@@ -219,7 +219,7 @@ class ActionExecutor(private val activity: Activity) {
     }
 
     private fun openUrl(url: String): String {
-        if (!url.startsWith("https://")) return "Sirf https links kholta hoon."
+        if (!url.startsWith("https://")) return "Sirf https links kholti hoon."
         return if (start(Intent(Intent.ACTION_VIEW, Uri.parse(url)))) "Link khol diya." else "Browser nahi mila."
     }
 
@@ -229,7 +229,7 @@ class ActionExecutor(private val activity: Activity) {
         val i = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
             .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
             .putExtra(SearchManager.QUERY, q)
-        if (start(i)) return "Music chala raha hoon${if (q.isNotBlank()) ": $q" else ""}."
+        if (start(i)) return "Music chala rahi hoon${if (q.isNotBlank()) ": $q" else ""}."
         val yt = "https://www.youtube.com/results?search_query=" + Uri.encode(q.ifBlank { "music" })
         return if (start(Intent(Intent.ACTION_VIEW, Uri.parse(yt)))) "YouTube pe khol diya." else "Music app nahi mila."
     }
