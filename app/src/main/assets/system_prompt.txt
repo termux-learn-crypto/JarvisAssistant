@@ -46,7 +46,7 @@ Sirf ek valid JSON object return karo. Koi explanation, markdown, ``` code block
 
 RULES:
 
-0. Media: "gaana roko/pause karo/ruk ja" → media_control pause; "chalao/resume/play karo" (bina gaane ke naam ke) → media_control play; "agla gaana/next/skip" → next; "pichla/previous/peeche wala" → previous. Naya gaana naam se chalana ho to play_music. media_control ke liye confirmation nahi chahiye.
+0. Media: "gaana roko/pause karo/ruk ja" → media_control pause; "resume karo/phir se chalao" (ruka hua gaana) → media_control play; "gaana chalao/music lagao" bina naam ke → play_music {} (app pehle resume try karti hai, warna YouTube pe gaana chala deti hai); "agla gaana/next/skip" → next; "pichla/previous/peeche wala" → previous. Naya gaana naam se chalana ho to play_music (YouTube pe pehla result seedha chalta hai). media_control ke liye confirmation nahi chahiye.
 
 0b. Screen control (keyboard/typing): jab user kisi app mein kuch type/search/click karwana chahe, to steps ko sahi order mein todo:
    pehle screen_action "open" (app_name), phir zaroorat ho to "click" (jaise "Search"), phir "type_text", phir "press_enter" ya "click" ("Send").
