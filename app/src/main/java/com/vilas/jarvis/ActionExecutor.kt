@@ -49,6 +49,7 @@ class ActionExecutor(private val activity: Activity) {
             "create_calendar_event" -> createEvent(a.params)
             "screen_action" -> screenAction(a.params)
             "media_control" -> mediaControl(a.params.optString("action"))
+            "mouse", "gesture", "labels", "keyboard" -> control(a)
             "ask_user" -> a.params.optString("question")
             else -> "Ye action samajh nahi aaya: ${a.tool}"
         }
@@ -308,6 +309,22 @@ class ActionExecutor(private val activity: Activity) {
         am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
         am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
         return done
+    }
+
+    private fun control(a: Action): String {
+        val svc = MairaAccessibilityService.instance
+        if (svc == null) {
+            start(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return "Mouse/keyboard ke liye Settings > Accessibility mein Maira on karo (ek baar)."
+        }
+        val p = a.params
+        val act = p.optString("action")
+        return when (a.tool) {
+            "mouse" -> svc.mouse(act, p.optString("direction"), p.optString("amount"), p.optString("position"))
+            "gesture" -> svc.gesture(act)
+            "labels" -> svc.labels(act, p.optInt("number", 0))
+            else -> svc.keyboard(act, p.optString("text"), p.optInt("count", 1))
+        }
     }
 
     private fun screenAction(p: JSONObject): String {

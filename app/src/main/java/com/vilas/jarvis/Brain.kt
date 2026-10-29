@@ -106,7 +106,7 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
         }
     }
 
-    private val SCREEN_TOOLS = setOf("screen_action", "read_screen")
+    val SCREEN_TOOLS = setOf("screen_action", "read_screen", "mouse", "gesture", "labels", "keyboard")
 
     /**
      * Plan ke actions chalao (BACKGROUND thread pe). Return: jo extra bolna hai.
@@ -134,7 +134,7 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
             log("  ⚙", status)
             if (a.tool == "read_battery") extra.append(" ").append(batterySpeech(act))
             if (isOpen) appOpened = true
-            if (plan.actions.size > 1) sleep(if (isOpen) 2200L else if (a.tool == "screen_action") 900L else 150L)
+            if (plan.actions.size > 1) sleep(if (isOpen) 2200L else if (a.tool in SCREEN_TOOLS) 700L else 150L)
         }
         return extra.toString().trim()
     }

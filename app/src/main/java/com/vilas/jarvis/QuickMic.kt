@@ -74,55 +74,65 @@ class MairaTileService : TileService() {
 }
 
 /**
- * Chhota transparent mic jo kisi bhi app (jaise YouTube) ke upar khulta hai,
- * taaki peeche wali app band na ho.
+ * Chhota mic card jo kisi bhi app ke upar neeche khulta hai. Card ke bahar ke touch aur
+ * Maira ke tap peeche wali app tak jaate hain. Mouse/keyboard ke liye lagatar sunti hai jab tak "bas" na bolo.
  */
 class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
 
     private lateinit var status: TextView
+    private lateinit var heard: TextView
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var pendingSpeech: String? = null
-    private var finishAfterSpeech = false
+    private var afterSpeech: (() -> Unit)? = null
     private val main = Handler(Looper.getMainLooper())
     private lateinit var executor: ActionExecutor
+    private var session = false      // lagatar sunne wala mode
+    private var misses = 0
+    private var closing = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         executor = ActionExecutor(this)
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#33000000"))
-            setOnClickListener { finish() }
+        setFinishOnTouchOutside(false)
+        window.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+            setGravity(Gravity.BOTTOM)
+            setLayout(MATCH_PARENT, WRAP_CONTENT)
         }
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(20))
+            setPadding(dp(18), dp(12), dp(18), dp(14))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#0E1117")); cornerRadius = dp(18).toFloat()
+                setColor(Color.parseColor("#EE0E1117")); cornerRadius = dp(18).toFloat()
             }
-            isClickable = true
         }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val title = TextView(this).apply {
             text = "MAIRA"
-            textSize = 18f
+            textSize = 16f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#4FC3F7"))
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         }
-        status = TextView(this).apply {
-            text = "Sun rahi hoon…"
-            textSize = 17f
-            setTextColor(Color.WHITE)
-            setPadding(0, dp(8), 0, 0)
+        val close = TextView(this).apply {
+            text = "  ✕  "
+            textSize = 18f
+            setTextColor(Color.LTGRAY)
+            setOnClickListener { endSession() }
         }
-        card.addView(title)
-        card.addView(status)
-        root.addView(card, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM).apply {
-            setMargins(dp(12), 0, dp(12), dp(24))
-        })
-        setContentView(root)
+        top.addView(title); top.addView(close)
+        status = TextView(this).apply { text = "Sun rahi hoon…"; textSize = 16f; setTextColor(Color.WHITE); setPadding(0, dp(6), 0, 0) }
+        heard = TextView(this).apply { textSize = 13f; setTextColor(Color.GRAY) }
+        card.addView(top); card.addView(status); card.addView(heard)
+        val wrap = FrameLayout(this).apply { setPadding(dp(10), 0, dp(10), dp(16)); addView(card) }
+        setContentView(wrap)
 
         tts = TextToSpeech(this, this)
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -136,20 +146,37 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        closing = true
         recognizer?.destroy()
         tts?.shutdown()
         super.onDestroy()
     }
 
+    private fun endSession() {
+        closing = true
+        session = false
+        MairaAccessibilityService.instance?.let { svc -> try { svc.labels("hide", 0) } catch (_: Exception) {} }
+        finish()
+    }
+
+    /** Ek kaam khatam: session mein phir suno, warna band. */
+    private fun next() {
+        if (closing) return
+        if (session) main.postDelayed({ if (!closing) listen() }, 350) else main.postDelayed({ finish() }, 500)
+    }
+
     private fun listen() {
+        if (closing) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             status.text = "Voice recognition nahi mila. Google app update karo."
             return
         }
+        recognizer?.destroy()
         val lang = Brain.lang(this).rec
+        status.text = if (session) "Bolo… (band karne ke liye \"bas\")" else "Sun rahi hoon…"
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(p: Bundle?) { status.text = "Bolo…" }
+                override fun onReadyForSpeech(p: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(v: Float) {}
                 override fun onBufferReceived(b: ByteArray?) {}
@@ -157,15 +184,18 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
                 override fun onEvent(t: Int, b: Bundle?) {}
                 override fun onPartialResults(b: Bundle?) {
                     b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                        ?.takeIf { it.isNotBlank() }?.let { status.text = it }
+                        ?.takeIf { it.isNotBlank() }?.let { heard.text = it }
                 }
                 override fun onError(error: Int) {
-                    status.text = "Kuch sunai nahi diya. Phir se tap karo."
-                    main.postDelayed({ finish() }, 1500)
+                    if (closing) return
+                    misses++
+                    if (session && misses < 4) { listen(); return }
+                    status.text = "Kuch sunai nahi diya."
+                    main.postDelayed({ endSession() }, 1200)
                 }
                 override fun onResults(b: Bundle?) {
                     val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    if (text.isNullOrBlank()) onError(0) else handle(text)
+                    if (text.isNullOrBlank()) onError(0) else { misses = 0; handle(text) }
                 }
             })
         }
@@ -178,31 +208,43 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         recognizer?.startListening(i)
     }
 
+    private val stopWords = Regex("(?i)^\\s*(bas|bas karo|bas kar|stop|stop listening|ruk jao|ho gaya|band karo|बस|बस करो|रुक जाओ|हो गया|थांब|पुरे)\\s*$")
+
     private fun handle(text: String) {
-        status.text = "\"$text\"\nEk sec…"
+        heard.text = text
+        if (stopWords.containsMatchIn(text)) {
+            status.text = "Theek hai, bye!"
+            closing = true
+            say(if (Brain.lang(this).mode == "English") "Okay." else "ठीक है।") { endSession() }
+            return
+        }
+        status.text = "Ek sec…"
         Thread {
             val r = try { Result.success(Brain.plan(this, text)) } catch (e: Exception) { Result.failure(e) }
             runOnUiThread {
                 r.fold(onSuccess = { onPlan(it) }, onFailure = {
                     status.text = "Error: ${it.message}"
-                    main.postDelayed({ finish() }, 3000)
+                    next()
                 })
             }
         }.start()
     }
 
+    private val SESSION_TOOLS = setOf("mouse", "gesture", "labels", "keyboard", "screen_action", "read_screen")
+
     private fun onPlan(plan: Plan) {
-        status.text = plan.reply
+        if (plan.actions.any { it.tool in SESSION_TOOLS }) session = true
+        if (plan.reply.isNotBlank()) status.text = plan.reply
         if (plan.actions.isEmpty() || plan.actions.all { it.tool == "ask_user" }) {
-            say(plan.speech, finishAfter = true); return
+            say(plan.speech) { next() }; return
         }
         if (plan.confirmationRequired) {
-            say(plan.speech, finishAfter = false)
+            say(plan.speech, then = null)
             AlertDialog.Builder(this)
                 .setTitle("Kar doon?")
                 .setMessage(plan.reply + "\n\n" + plan.describe())
                 .setPositiveButton("Haan") { _, _ -> run(plan, announce = false) }
-                .setNegativeButton("Rehne do") { _, _ -> finish() }
+                .setNegativeButton("Rehne do") { _, _ -> next() }
                 .setCancelable(false)
                 .show()
         } else run(plan, announce = true)
@@ -210,15 +252,17 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun run(plan: Plan, announce: Boolean) {
         val first = if (announce) plan.speech.trim() else ""
-        if (first.isNotBlank()) say(first, finishAfter = false)
+        if (first.isNotBlank()) say(first, then = null)
         Thread {
             val extra = Brain.execute(this, executor, plan,
-                log = { w, m -> if (w == "Maira") runOnUiThread { status.text = m } },
-                hideSelf = { moveTaskToBack(true) })
+                log = { w, m -> runOnUiThread { if (w == "Maira") status.text = m else heard.text = m.trim() } },
+                hideSelf = { })
             runOnUiThread {
-                if (extra.isNotBlank()) say(extra, finishAfter = true, queue = true)
-                else if (pendingSpeech != null || (ttsReady && tts?.isSpeaking == true)) finishAfterSpeech = true
-                else main.postDelayed({ finish() }, 600)
+                when {
+                    extra.isNotBlank() -> say(extra, queue = true) { next() }
+                    pendingSpeech != null || (ttsReady && tts?.isSpeaking == true) -> afterSpeech = { next() }
+                    else -> next()
+                }
             }
         }.start()
     }
@@ -230,8 +274,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         if (!ttsReady) return
         val t = tts ?: return
         val parts = Brain.lang(this).tts.split("-")
-        val loc = Locale(parts[0], parts[1])
-        t.setLanguage(loc)
+        t.setLanguage(Locale(parts[0], parts[1]))
         t.setPitch(1.12f)
         t.setSpeechRate(1.05f)
         val saved = Brain.prefs(this).getString("voice_" + Brain.lang(this).tts, null)
@@ -239,9 +282,13 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) {
-                if (finishAfterSpeech && tts?.isSpeaking != true) main.postDelayed({ finish() }, 300)
+                main.post {
+                    if (tts?.isSpeaking != true) { val cb = afterSpeech; afterSpeech = null; cb?.invoke() }
+                }
             }
-            @Deprecated("Deprecated in Java") override fun onError(id: String?) {}
+            @Deprecated("Deprecated in Java") override fun onError(id: String?) {
+                main.post { val cb = afterSpeech; afterSpeech = null; cb?.invoke() }
+            }
         })
         pendingSpeech?.let { pendingSpeech = null; speakNow(it, false) }
     }
@@ -249,9 +296,9 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     private fun clean(text: String) =
         text.replace(Regex("[\\p{So}\\p{Cn}*_#`~|<>]"), " ").replace(Regex("\\s+"), " ").trim()
 
-    private fun say(text: String, finishAfter: Boolean, queue: Boolean = false) {
-        if (finishAfter) finishAfterSpeech = true
-        if (text.isBlank()) { if (finishAfter) main.postDelayed({ finish() }, 800); return }
+    private fun say(text: String, queue: Boolean = false, then: (() -> Unit)?) {
+        if (then != null) afterSpeech = then
+        if (text.isBlank()) { if (then != null) { afterSpeech = null; then() }; return }
         if (!ttsReady) { pendingSpeech = text; return }
         speakNow(text, queue)
     }
