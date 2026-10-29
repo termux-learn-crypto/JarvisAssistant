@@ -125,11 +125,6 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         setContentView(root)
 
         tts = TextToSpeech(this, this)
-        if (Brain.apiKey(this).isBlank()) {
-            status.text = "Pehle Maira app ki settings mein Gemini key daalo."
-            main.postDelayed({ finish() }, 2500)
-            return
-        }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 5)
         } else listen()

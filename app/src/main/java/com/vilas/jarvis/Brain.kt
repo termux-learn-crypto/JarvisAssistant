@@ -57,6 +57,15 @@ object Brain {
 
     /** Background thread se call karo. */
     fun plan(ctx: Context, command: String): Plan {
+        // Pehle offline dimaag (tez, free). Samajh na aaye to Gemini (agar key ho).
+        LocalBrain.parse(ctx, command)?.let { return it }
+        if (apiKey(ctx).isBlank()) {
+            val en = lang(ctx).mode == "English"
+            val r = if (en) "Sorry, I didn't get that offline. Add a free Gemini key in settings for smart mode."
+                    else "Ye offline samajh nahi aaya. Settings mein free Gemini key daaloge to ye bhi samajh jaungi."
+            val sp = if (en) r else "ये मुझे ऑफलाइन समझ नहीं आया। सेटिंग्स में फ्री जेमिनी की डालोगे तो ये भी समझ जाऊंगी।"
+            return Plan(emptyList(), false, r, sp)
+        }
         val msg = "Voice mode: ${lang(ctx).mode}\nCommand: $command"
         return Plan.parse(GeminiClient(apiKey(ctx), model(ctx)).generate(systemPrompt(ctx), msg))
     }
@@ -139,6 +148,12 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
         if (Safety.isBlocked(pkg)) return "Ye app safety ke liye main nahi padhti."
         val text = svc.screenText()
         if (text.isBlank()) return "Screen pe padhne layak text nahi mila."
+        if (apiKey(ctx).isBlank()) {
+            val short = text.lines().filter { it.length > 3 }.take(12).joinToString(". ").take(600)
+            log("Maira", short)
+            extra.append(" ").append(short)
+            return "Screen padh li (offline)."
+        }
         return try {
             val (reply, speech) = readAloud(ctx, "Phone screen ($pkg)", q, text)
             log("Maira", reply)
@@ -152,6 +167,12 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
             return "Messages padhne ke liye Settings > Accessibility mein Maira on karo."
         val list = MairaAccessibilityService.recentNotifications(app)
         if (list.isEmpty()) return "Abhi koi naya message/notification nahi mila (Maira on hone ke baad wale hi dikhte hain)."
+        if (apiKey(ctx).isBlank()) {
+            val short = list.take(5).joinToString(". ") { it.replace(Regex("^\\[\\d{2}:\\d{2}\\]\\s*"), "") }
+            log("Maira", short)
+            extra.append(" ").append(short)
+            return "Messages padh liye (offline)."
+        }
         return try {
             val (reply, speech) = readAloud(ctx, "Recent notifications/messages (naye pehle)", q, list.joinToString("\n"))
             log("Maira", reply)
