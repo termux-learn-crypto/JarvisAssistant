@@ -30,8 +30,12 @@ class MairaAccessibilityService : AccessibilityService() {
         val pkg = e.packageName?.toString() ?: return
         when (e.eventType) {
             AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> captureNotification(e, pkg)
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> if (pkg == YT) maybeSkipAd()
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                // Keyboard / system UI ko foreground app mat samjho
+                if (pkg != "com.android.systemui" && !pkg.contains("inputmethod") && !pkg.contains("keyboard")) fgPkg = pkg
+                if (fgPkg == YT) startPolling()
+            }
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> if (pkg == YT) { fgPkg = YT; startPolling(); maybeSkipAd() }
         }
     }
 
@@ -55,24 +59,64 @@ class MairaAccessibilityService : AccessibilityService() {
         }
     }
 
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var fgPkg = ""
+    private var polling = false
+    private var lastTap = 0L
+
+    private val poll = object : Runnable {
+        override fun run() {
+            if (fgPkg != YT) { polling = false; return }
+            try { maybeSkipAd() } catch (_: Exception) {}
+            handler.postDelayed(this, 800)
+        }
+    }
+
+    private fun startPolling() {
+        if (polling) return
+        polling = true
+        handler.post(poll)
+    }
+
+    private fun skipLabel(raw: String): Boolean {
+        val l = raw.lowercase(Locale.ROOT).trim()
+        if (l.isEmpty() || l.any { it.isDigit() }) return false   // "Skip in 5" abhi skip nahi hota
+        return l == "skip" || l.startsWith("skip ad") || l.startsWith("skip ads") ||
+            l.contains("स्किप") || l.contains("छोड़ें") || l.contains("वगळा")
+    }
+
     private fun maybeSkipAd() {
         if (!getSharedPreferences("jarvis", MODE_PRIVATE).getBoolean("autoskip", true)) return
         val now = System.currentTimeMillis()
-        if (now - lastSkipCheck < 600) return
+        if (now - lastSkipCheck < 500) return
         lastSkipCheck = now
         val r = root() ?: return
-        val byId = r.findAccessibilityNodeInfosByViewId("$YT:id/skip_ad_button") +
-            r.findAccessibilityNodeInfosByViewId("$YT:id/modern_skip_ad_text")
-        val candidates = byId.ifEmpty {
-            listOf("Skip ad", "Skip ads", "Skip", "विज्ञापन छोड़ें").flatMap { r.findAccessibilityNodeInfosByText(it) }
-                .filter { val l = label(it).lowercase(Locale.ROOT); l.startsWith("skip") || l.contains("छोड़ें") }
+        if (r.packageName?.toString() != YT) return
+        val byId = listOf("skip_ad_button", "modern_skip_ad_text", "skip_ad_button_text")
+            .flatMap { r.findAccessibilityNodeInfosByViewId("$YT:id/$it") }
+            .filter { it.isVisibleToUser && !(it.text?.toString() ?: "").any { c -> c.isDigit() } }
+        val target = byId.firstOrNull()
+            ?: allNodes().firstOrNull { it.isVisibleToUser && (skipLabel(it.text?.toString() ?: "") || skipLabel(it.contentDescription?.toString() ?: "")) }
+            ?: return
+        if (now - lastTap < 1500) return
+        lastTap = now
+        tapNode(target)
+    }
+
+    /** Asli ungli jaisa tap (naye YouTube ke button ACTION_CLICK nahi lete). */
+    private fun tapNode(n: AccessibilityNodeInfo) {
+        val rect = android.graphics.Rect()
+        n.getBoundsInScreen(rect)
+        if (rect.width() > 0 && rect.height() > 0) {
+            val path = android.graphics.Path().apply { moveTo(rect.exactCenterX(), rect.exactCenterY()) }
+            val g = android.accessibilityservice.GestureDescription.Builder()
+                .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 60))
+                .build()
+            if (dispatchGesture(g, null, null)) return
         }
-        for (c in candidates) {
-            if (!c.isVisibleToUser) continue
-            var n: AccessibilityNodeInfo? = c
-            while (n != null && !n.isClickable) n = n.parent
-            if ((n ?: c).performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
-        }
+        var c: AccessibilityNodeInfo? = n
+        while (c != null && !c.isClickable) c = c.parent
+        (c ?: n).performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 
     /** Screen pe dikh raha text (password chhod ke), upar se neeche. */
