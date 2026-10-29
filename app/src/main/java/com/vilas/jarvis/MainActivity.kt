@@ -225,7 +225,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.RECORD_AUDIO
         )
-        if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT >= 33) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+            perms.add(Manifest.permission.READ_MEDIA_AUDIO)
+        } else perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         val missing = perms.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), REQ_PERMS)
     }
@@ -237,6 +240,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, !Brain.online(this))
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
             .putExtra(RecognizerIntent.EXTRA_PROMPT, "Boliye…")
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)

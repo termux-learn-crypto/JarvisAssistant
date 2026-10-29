@@ -44,6 +44,17 @@ object Brain {
     fun prefs(ctx: Context) = ctx.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
     fun lang(ctx: Context): Lang = languages[prefs(ctx).getInt("lang2", 0).coerceIn(0, languages.size - 1)]
     fun apiKey(ctx: Context) = prefs(ctx).getString("api_key", "") ?: ""
+
+    /** Internet chalu hai? */
+    fun online(ctx: Context): Boolean = try {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } catch (_: Exception) { true }
+
+    /** Gemini use kar sakte hain? (key + internet dono) */
+    fun smart(ctx: Context) = apiKey(ctx).isNotBlank() && online(ctx)
     fun model(ctx: Context) = (prefs(ctx).getString("model", "") ?: "").ifBlank { DEFAULT_MODEL }
 
     private var template: String? = null
@@ -59,11 +70,20 @@ object Brain {
     fun plan(ctx: Context, command: String): Plan {
         // Pehle offline dimaag (tez, free). Samajh na aaye to Gemini (agar key ho).
         LocalBrain.parse(ctx, command)?.let { return it }
-        if (apiKey(ctx).isBlank()) {
+        if (!smart(ctx)) {
             val en = lang(ctx).mode == "English"
-            val r = if (en) "Sorry, I didn't get that offline. Add a free Gemini key in settings for smart mode."
-                    else "Ye offline samajh nahi aaya. Settings mein free Gemini key daaloge to ye bhi samajh jaungi."
-            val sp = if (en) r else "ये मुझे ऑफलाइन समझ नहीं आया। सेटिंग्स में फ्री जेमिनी की डालोगे तो ये भी समझ जाऊंगी।"
+            val noNet = apiKey(ctx).isNotBlank()
+            val r = when {
+                en && noNet -> "No internet, and I couldn't get that offline. Try a simpler command."
+                en -> "Sorry, I didn't get that offline. Add a free Gemini key in settings for smart mode."
+                noNet -> "Abhi internet nahi hai aur ye offline samajh nahi aaya. Thoda simple bolo, jaise \"YouTube kholo\"."
+                else -> "Ye offline samajh nahi aaya. Settings mein free Gemini key daaloge to ye bhi samajh jaungi."
+            }
+            val sp = when {
+                en -> r
+                noNet -> "अभी इंटरनेट नहीं है और ये ऑफलाइन समझ नहीं आया। थोड़ा सिंपल बोलो।"
+                else -> "ये मुझे ऑफलाइन समझ नहीं आया। सेटिंग्स में फ्री जेमिनी की डालोगे तो ये भी समझ जाऊंगी।"
+            }
             return Plan(emptyList(), false, r, sp)
         }
         val msg = "Voice mode: ${lang(ctx).mode}\nCommand: $command"
@@ -148,7 +168,7 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
         if (Safety.isBlocked(pkg)) return "Ye app safety ke liye main nahi padhti."
         val text = svc.screenText()
         if (text.isBlank()) return "Screen pe padhne layak text nahi mila."
-        if (apiKey(ctx).isBlank()) {
+        if (!smart(ctx)) {
             val short = text.lines().filter { it.length > 3 }.take(12).joinToString(". ").take(600)
             log("Maira", short)
             extra.append(" ").append(short)
@@ -167,7 +187,7 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
             return "Messages padhne ke liye Settings > Accessibility mein Maira on karo."
         val list = MairaAccessibilityService.recentNotifications(app)
         if (list.isEmpty()) return "Abhi koi naya message/notification nahi mila (Maira on hone ke baad wale hi dikhte hain)."
-        if (apiKey(ctx).isBlank()) {
+        if (!smart(ctx)) {
             val short = list.take(5).joinToString(". ") { it.replace(Regex("^\\[\\d{2}:\\d{2}\\]\\s*"), "") }
             log("Maira", short)
             extra.append(" ").append(short)

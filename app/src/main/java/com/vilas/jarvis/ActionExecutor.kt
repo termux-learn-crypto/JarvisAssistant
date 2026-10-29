@@ -228,6 +228,8 @@ class ActionExecutor(private val activity: Activity) {
             try { Thread.sleep(900) } catch (_: InterruptedException) {}
             if (am.isMusicActive) return "Gaana chala diya."
         }
+        // Internet nahi: phone mein saved gaane chalao
+        if (!Brain.online(ctx)) return playLocal(q)
         val query = q.ifBlank { "latest hindi songs" }
         // YouTube search se pehla video nikaal ke seedha chalao (watch link autoplay hota hai)
         val id = firstYoutubeVideoId(query)
@@ -245,6 +247,36 @@ class ActionExecutor(private val activity: Activity) {
             .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
             .putExtra(SearchManager.QUERY, query)
         return if (start(i)) "Music app mein chala rahi hoon: $query" else "Koi music app ya YouTube nahi mila."
+    }
+
+    /** Phone ke andar ke gaane (MediaStore) mein naam se dhundh ke default music player mein chalao. */
+    private fun playLocal(q: String): String {
+        val perm = if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE
+        if (ctx.checkSelfPermission(perm) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            return "Internet nahi hai. Phone ke gaane chalane ke liye Maira app kholke Music/Audio permission do."
+        data class Song(val id: Long, val title: String, val artist: String)
+        val songs = mutableListOf<Song>()
+        try {
+            ctx.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.DISPLAY_NAME),
+                "${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.DURATION} > 60000", null, null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val title = (c.getString(1) ?: "") + " " + (c.getString(3) ?: "")
+                    songs.add(Song(c.getLong(0), title.lowercase(), (c.getString(2) ?: "").lowercase()))
+                }
+            }
+        } catch (_: Exception) {}
+        if (songs.isEmpty()) return "Internet nahi hai, aur phone mein koi gaana save nahi mila."
+        val words = q.lowercase().split(Regex("\\s+")).filter { it.length > 1 }
+        val pick = if (words.isEmpty()) songs.random() else
+            songs.maxByOrNull { s -> words.count { w -> s.title.contains(w) || s.artist.contains(w) } }
+                ?.takeIf { s -> words.any { w -> s.title.contains(w) || s.artist.contains(w) } }
+        if (pick == null) return "Internet nahi hai, aur phone mein \"$q\" naam ka gaana nahi mila."
+        val uri = android.content.ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, pick.id)
+        val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "audio/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return if (start(i)) "Offline gaana chala diya." else "Gaana mila par koi music player nahi khula."
     }
 
     private fun firstYoutubeVideoId(query: String): String? = try {
