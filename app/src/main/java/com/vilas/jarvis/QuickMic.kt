@@ -188,6 +188,10 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
                 }
                 override fun onError(error: Int) {
                     if (closing) return
+                    if (error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || error == 13) {
+                        status.text = "Offline voice pack nahi hai. Google app > Settings > Voice > Offline speech recognition mein Hindi aur English (India) download karo."
+                        main.postDelayed({ endSession() }, 6000); return
+                    }
                     misses++
                     if (session && misses < 4) { listen(); return }
                     status.text = "Kuch sunai nahi diya."
@@ -202,6 +206,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, !Brain.online(this))
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
