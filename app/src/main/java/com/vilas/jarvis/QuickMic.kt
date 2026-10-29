@@ -91,6 +91,26 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     private var session = false      // lagatar sunne wala mode
     private var misses = 0
     private var closing = false
+    private var focusReq: android.media.AudioFocusRequest? = null
+    private val audio by lazy { getSystemService(android.media.AudioManager::class.java) }
+
+    /** Jab tak main sun/bol rahi hoon, chal raha gaana/video ruka rahe. */
+    private fun holdFocus() {
+        if (focusReq != null) return
+        val attrs = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        val r = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+            .setAudioAttributes(attrs).setOnAudioFocusChangeListener { }.build()
+        if (audio.requestAudioFocus(r) == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusReq = r
+    }
+
+    private fun releaseFocus() {
+        focusReq?.let { audio.abandonAudioFocusRequest(it) }
+        focusReq = null
+    }
+
+    private val PLAY_ACTS = setOf("play", "play_pause", "toggle", "next", "previous", "prev")
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -136,9 +156,14 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         val wrap = FrameLayout(this).apply { setPadding(dp(10), 0, dp(10), dp(16)); addView(card) }
         setContentView(wrap)
 
+        holdFocus()
         tts = TextToSpeech(this, this)
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 5)
+        } else if (intent?.getBooleanExtra("wake", false) == true) {
+            status.text = "Haan bolo…"
+            val m = Brain.lang(this).mode
+            say(when (m) { "English" -> "Yes?"; "Marathi" -> "हां, बोल?"; else -> "हाँ, बोलो?" }) { listen() }
         } else listen()
     }
 
@@ -151,6 +176,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         closing = true
         recognizer?.destroy()
         tts?.shutdown()
+        releaseFocus()
         open = (open - 1).coerceAtLeast(0)
         if (open == 0) WakeService.instance?.resumeMic()
         super.onDestroy()
@@ -178,6 +204,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
             return
         }
         recognizer?.destroy()
+        holdFocus()
         val lang = Brain.lang(this).rec
         status.text = if (session) "Bolo… (band karne ke liye \"bas\")" else "Sun rahi hoon…"
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
@@ -262,6 +289,9 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun run(plan: Plan, announce: Boolean) {
+        // Gaana chalana/agla ho to focus chhod do, taaki player khul ke baje
+        if (plan.actions.any { it.tool == "play_music" || it.tool == "open_url" ||
+                (it.tool == "media_control" && it.params.optString("action") in PLAY_ACTS) }) releaseFocus()
         val first = if (announce) plan.speech.trim() else ""
         if (first.isNotBlank()) say(first, then = null)
         Thread {
