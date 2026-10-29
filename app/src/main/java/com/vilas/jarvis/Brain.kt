@@ -70,6 +70,16 @@ object Brain {
     fun plan(ctx: Context, command: String): Plan {
         // Pehle offline dimaag (tez, free). Samajh na aaye to Gemini (agar key ho).
         LocalBrain.parse(ctx, command)?.let { return it }
+        if (!smart(ctx) && LocalLlm.ready(ctx)) {
+            return try {
+                val (cmd, ans) = LocalLlm.route(ctx, command)
+                cmd?.let { c -> LocalBrain.parse(ctx, c)?.let { return it } }
+                val reply = ans.ifBlank { if (lang(ctx).mode == "English") "Sorry, I didn't get that." else "Sorry yaar, ye samajh nahi aaya." }
+                Plan(emptyList(), false, reply, reply)
+            } catch (e: Throwable) {
+                Plan(emptyList(), false, "Offline AI chal nahi paya: ${e.message}", "ऑफलाइन दिमाग अभी चल नहीं पाया।")
+            }
+        }
         if (!smart(ctx)) {
             val en = lang(ctx).mode == "English"
             val noNet = apiKey(ctx).isNotBlank()
@@ -77,12 +87,12 @@ object Brain {
                 en && noNet -> "No internet, and I couldn't get that offline. Try a simpler command."
                 en -> "Sorry, I didn't get that offline. Add a free Gemini key in settings for smart mode."
                 noNet -> "Abhi internet nahi hai aur ye offline samajh nahi aaya. Thoda simple bolo, jaise \"YouTube kholo\"."
-                else -> "Ye offline samajh nahi aaya. Settings mein free Gemini key daaloge to ye bhi samajh jaungi."
+                else -> "Ye offline samajh nahi aaya. Settings mein \"Offline AI dimaag\" download karo, phir ye bhi samajh jaungi."
             }
             val sp = when {
                 en -> r
                 noNet -> "अभी इंटरनेट नहीं है और ये ऑफलाइन समझ नहीं आया। थोड़ा सिंपल बोलो।"
-                else -> "ये मुझे ऑफलाइन समझ नहीं आया। सेटिंग्स में फ्री जेमिनी की डालोगे तो ये भी समझ जाऊंगी।"
+                else -> "ये मुझे ऑफलाइन समझ नहीं आया। सेटिंग्स में ऑफलाइन दिमाग डाउनलोड करो, फिर ये भी समझ जाऊंगी।"
             }
             return Plan(emptyList(), false, r, sp)
         }
@@ -168,6 +178,13 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
         if (Safety.isBlocked(pkg)) return "Ye app safety ke liye main nahi padhti."
         val text = svc.screenText()
         if (text.isBlank()) return "Screen pe padhne layak text nahi mila."
+        if (!smart(ctx) && LocalLlm.ready(ctx)) {
+            try {
+                val r = LocalLlm.read(ctx, "screen of $pkg", q, text)
+                log("Maira", r); extra.append(" ").append(r)
+                return "Screen padh li (offline AI)."
+            } catch (_: Throwable) {}
+        }
         if (!smart(ctx)) {
             val short = text.lines().filter { it.length > 3 }.take(12).joinToString(". ").take(600)
             log("Maira", short)
@@ -187,6 +204,13 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
             return "Messages padhne ke liye Settings > Accessibility mein Maira on karo."
         val list = MairaAccessibilityService.recentNotifications(app)
         if (list.isEmpty()) return "Abhi koi naya message/notification nahi mila (Maira on hone ke baad wale hi dikhte hain)."
+        if (!smart(ctx) && LocalLlm.ready(ctx)) {
+            try {
+                val r = LocalLlm.read(ctx, "recent notifications and messages, newest first", q, list.joinToString("\n"))
+                log("Maira", r); extra.append(" ").append(r)
+                return "Messages padh liye (offline AI)."
+            } catch (_: Throwable) {}
+        }
         if (!smart(ctx)) {
             val short = list.take(5).joinToString(". ") { it.replace(Regex("^\\[\\d{2}:\\d{2}\\]\\s*"), "") }
             log("Maira", short)
