@@ -189,6 +189,22 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (QuickMicActivity.open == 0) WakeService.instance?.resumeMic()
     }
 
+    private fun pickModelFile() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        try { startActivityForResult(i, REQ_MODEL) } catch (_: Exception) { log("Maira", "File chunne wala app nahi mila.") }
+    }
+
+    private fun importModel(uri: android.net.Uri) {
+        log("Maira", "Model file laga rahi hoon, 1-2 minute lagega…")
+        Thread {
+            val err = LocalLlm.import(this, uri) { mb -> runOnUiThread { log("Maira", "Copy: $mb MB") } }
+            runOnUiThread {
+                if (err == null) log("Maira", "Ho gaya! Offline AI ready hai. Ab Download/Maira wali file chaho to delete kar sakte ho.")
+                else log("Maira", err)
+            }
+        }.start()
+    }
+
     private fun showOfflineAi() {
         val status = TextView(this).apply { setPadding(dp(20), dp(8), dp(20), dp(8)); text = LocalLlm.status(this@MainActivity) }
         val h = android.os.Handler(mainLooper)
@@ -207,10 +223,22 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 addView(status)
             })
             .setItems(names) { _, i ->
-                LocalLlm.download(this, LocalLlm.MODELS[i])
-                log("Maira", "Download shuru: ${LocalLlm.MODELS[i].label}. Notification mein progress dikhega.")
+                val m = LocalLlm.MODELS[i]
+                if (LocalLlm.complete(this, m)) {
+                    prefs.edit().putString("llm", m.id).apply()
+                    log("Maira", "${m.label} pehle se phone mein hai, wahi use karungi. Download ki zarurat nahi.")
+                    return@setItems
+                }
+                AlertDialog.Builder(this)
+                    .setMessage("${m.label} download karun? Agar ye file pehle se phone mein hai to 'Phone se lagao' use karo.")
+                    .setPositiveButton("Download") { _, _ ->
+                        LocalLlm.download(this, m)
+                        log("Maira", "Download shuru: ${m.label}. Ye Download/Maira folder mein save hoga, update ke baad bhi rahega.")
+                    }
+                    .setNegativeButton("Phone se lagao") { _, _ -> pickModelFile() }
+                    .show()
             }
-            .setNeutralButton("Delete model") { _, _ -> LocalLlm.delete(this); log("Maira", "Offline model hata diya.") }
+            .setNeutralButton("Phone se lagao") { _, _ -> pickModelFile() }
             .setNegativeButton("Band karo", null)
             .create()
         dlg.setOnDismissListener { h.removeCallbacks(tick) }
@@ -333,6 +361,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_MODEL && resultCode == RESULT_OK) { data?.data?.let { importModel(it) }; return }
         if (requestCode == REQ_SPEECH && resultCode == RESULT_OK) {
             val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             if (!text.isNullOrBlank()) handleCommand(text)
@@ -469,6 +498,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     companion object {
         private const val REQ_SPEECH = 101
+        private const val REQ_MODEL = 102
         private const val REQ_PERMS = 102
     }
 }

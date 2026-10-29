@@ -29,9 +29,60 @@ object LocalLlm {
         )
     )
 
-    private fun file(ctx: Context, m: Model) = File(ctx.getExternalFilesDir(null), m.id + ".task")
+    /** App ke andar wali copy (purane versions + import). */
+    private fun appFile(ctx: Context, m: Model) = File(ctx.getExternalFilesDir(null), m.id + ".task")
 
-    private fun complete(ctx: Context, m: Model) = file(ctx, m).let { it.exists() && it.length() == m.bytes }
+    /** Download/Maira folder — app uninstall/update ke baad bhi phone mein bacha rehta hai. */
+    fun publicFile(m: Model) = File(
+        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+        "Maira/" + m.id + ".task"
+    )
+
+    private fun ok(f: File, m: Model) = try { f.exists() && f.canRead() && f.length() == m.bytes } catch (_: Exception) { false }
+
+    /** Jahan bhi poora model mile, wahi file. */
+    private fun file(ctx: Context, m: Model): File =
+        listOf(appFile(ctx, m), publicFile(m)).firstOrNull { ok(it, m) } ?: appFile(ctx, m)
+
+    fun complete(ctx: Context, m: Model) = ok(appFile(ctx, m), m) || ok(publicFile(m), m)
+
+    /** Download folder mein file hai par padh nahi pa rahe (reinstall ke baad) — import karna padega. */
+    fun needsImport(ctx: Context) = !ready(ctx) && MODELS.any { publicFile(it).exists() }
+
+    /** Phone se chuni hui .task file app mein copy karo. progress(MB), return error ya null. */
+    fun import(ctx: Context, uri: Uri, progress: (Long) -> Unit): String? {
+        val cr = ctx.contentResolver
+        var size = -1L
+        var name = ""
+        cr.query(uri, null, null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 }?.let { size = c.getLong(it) }
+                c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: "" }
+            }
+        }
+        val m = MODELS.firstOrNull { it.bytes == size }
+            ?: MODELS.firstOrNull { name.contains(it.id) || (it.id == "qwen05" && name.contains("0.5B")) || (it.id == "qwen15" && name.contains("1.5B")) }
+            ?: return "Ye Maira ka model file nahi lag raha (qwen05.task ya qwen15.task chuno)."
+        val out = appFile(ctx, m)
+        val tmp = File(out.path + ".part")
+        try {
+            cr.openInputStream(uri)!!.use { inp ->
+                tmp.outputStream().use { o ->
+                    val buf = ByteArray(1 shl 20); var total = 0L; var lastMb = -100L
+                    while (true) {
+                        val n = inp.read(buf); if (n < 0) break
+                        o.write(buf, 0, n); total += n
+                        val mb = total / 1_000_000
+                        if (mb >= lastMb + 100) { lastMb = mb; progress(mb) }
+                    }
+                }
+            }
+            if (tmp.length() != m.bytes) { tmp.delete(); return "File adhoori hai (${tmp.length() / 1_000_000} MB). Dobara download karo." }
+            out.delete(); tmp.renameTo(out)
+            Brain.prefs(ctx).edit().putString("llm", m.id).apply()
+            return null
+        } catch (e: Exception) { tmp.delete(); return e.message ?: "copy fail" }
+    }
 
     /** Jo model download ho chuka hai (chuna hua pehle). */
     fun installed(ctx: Context): Model? {
@@ -44,11 +95,11 @@ object LocalLlm {
     fun download(ctx: Context, m: Model) {
         val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         Brain.prefs(ctx).getLong("llm_dl", -1L).takeIf { it >= 0 }?.let { try { dm.remove(it) } catch (_: Exception) {} }
-        file(ctx, m).delete()
+        try { publicFile(m).delete() } catch (_: Exception) {}
         val req = DownloadManager.Request(Uri.parse(m.url))
             .setTitle("Maira AI dimaag")
             .setDescription(m.label)
-            .setDestinationInExternalFilesDir(ctx, null, m.id + ".task")
+            .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "Maira/" + m.id + ".task")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(true)
@@ -58,13 +109,14 @@ object LocalLlm {
 
     fun delete(ctx: Context) {
         synchronized(this) { engine?.close(); engine = null; engineId = null }
-        MODELS.forEach { file(ctx, it).delete() }
+        MODELS.forEach { appFile(ctx, it).delete(); try { publicFile(it).delete() } catch (_: Exception) {} }
     }
 
     /** Settings mein dikhane ke liye status. */
     fun status(ctx: Context): String {
         installed(ctx)?.let { return "Ready: ${it.label}. Ab bina key aur bina net ke sawal bhi samjhegi." }
         val id = Brain.prefs(ctx).getLong("llm_dl", -1L)
+        if (needsImport(ctx)) return "Model phone ke Download/Maira folder mein pada hai. 'Phone se lagao' dabao aur wahi file chuno, dobara download nahi karna padega."
         if (id < 0) return "Abhi download nahi hua."
         val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
