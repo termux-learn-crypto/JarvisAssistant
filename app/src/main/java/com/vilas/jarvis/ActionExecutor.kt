@@ -17,6 +17,8 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.telephony.SmsManager
+import android.view.KeyEvent
+import android.accessibilityservice.AccessibilityService
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
@@ -31,7 +33,7 @@ class ActionExecutor(private val activity: Activity) {
 
     // Safety: ye apps kabhi open nahi honge (banking / UPI / password managers)
     private val blockedWords = listOf(
-        "bank", "pay", "upi", "gpay", "phonepe", "paytm", "bhim", "wallet", "sbi", "hdfc", "icici",
+        "bank", "pay", "paisa", "upi", "gpay", "phonepe", "paytm", "bhim", "wallet", "sbi", "hdfc", "icici",
         "axis", "kotak", "yono", "imobile", "cred", "password", "authenticator", "lastpass",
         "bitwarden", "1password", "keepass", "gallery vault", "locker"
     )
@@ -55,7 +57,8 @@ class ActionExecutor(private val activity: Activity) {
             "set_volume" -> setVolume(a.params)
             "read_battery" -> readBattery()
             "create_calendar_event" -> createEvent(a.params)
-            "screen_action" -> "Screen control abhi is version mein supported nahi hai."
+            "screen_action" -> screenAction(a.params)
+            "media_control" -> mediaControl(a.params.optString("action"))
             "ask_user" -> a.params.optString("question")
             else -> "Ye action samajh nahi aaya: ${a.tool}"
         }
@@ -268,6 +271,51 @@ class ActionExecutor(private val activity: Activity) {
         val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         val charging = bm.isCharging
         return "Battery $pct% hai" + if (charging) ", charging ho raha hai." else "."
+    }
+
+    private fun mediaControl(action: String): String {
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val (code, done) = when (action.lowercase(Locale.ROOT)) {
+            "play" -> KeyEvent.KEYCODE_MEDIA_PLAY to "Play kar diya."
+            "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE to "Pause kar diya."
+            "play_pause", "toggle" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE to "Play/Pause kar diya."
+            "next" -> KeyEvent.KEYCODE_MEDIA_NEXT to "Agla gaana."
+            "previous", "prev" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS to "Pichla gaana."
+            "stop" -> KeyEvent.KEYCODE_MEDIA_STOP to "Band kar diya."
+            else -> return "Media action samajh nahi aaya: $action"
+        }
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+        return done
+    }
+
+    private fun screenAction(p: JSONObject): String {
+        val action = p.optString("action")
+        val appName = p.optString("app_name")
+        val text = p.optString("text")
+        if (action == "open") return openApp(appName)
+
+        val svc = MairaAccessibilityService.instance
+        if (svc == null) {
+            start(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return "Screen control ke liye Settings > Accessibility mein Maira on karo (ek baar)."
+        }
+        // Safety: banking/UPI/password apps ki screen pe kuch nahi karna
+        val pkg = svc.currentPackage()
+        if (isBlocked(pkg)) return "Is app mein screen control safety ke liye band hai."
+
+        return when (action) {
+            "click" -> svc.click(text)
+            "type_text" -> svc.typeText(text)
+            "press_enter" -> svc.pressEnter()
+            "scroll_down" -> svc.scroll(true)
+            "scroll_up" -> svc.scroll(false)
+            "go_back" -> svc.global(AccessibilityService.GLOBAL_ACTION_BACK, "Back kar diya.")
+            "home" -> svc.global(AccessibilityService.GLOBAL_ACTION_HOME, "Home pe aa gaye.")
+            "recents" -> svc.global(AccessibilityService.GLOBAL_ACTION_RECENTS, "Recent apps khol diye.")
+            "notifications" -> svc.global(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS, "Notifications khol di.")
+            else -> "Screen action samajh nahi aaya: $action"
+        }
     }
 
     private fun createEvent(p: JSONObject): String {

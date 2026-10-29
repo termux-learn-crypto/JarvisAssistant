@@ -378,18 +378,32 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun runActions(plan: Plan, announce: Boolean) {
+        if (announce && plan.reply.isNotBlank()) log("Maira", plan.reply)
         val spoken = StringBuilder()
-        if (announce && plan.reply.isNotBlank()) {
-            log("Maira", plan.reply)
-            spoken.append(plan.speech)
-        }
-        for (a in plan.actions) {
-            val status = executor.execute(a)
-            log("  ⚙", status)
-            // Battery ki asli value model ko pata nahi hoti, isliye yahan bolte hain
-            if (a.tool == "read_battery") spoken.append(" ").append(batterySpeech())
-        }
-        speak(spoken.toString().trim())
+        if (announce) spoken.append(plan.speech)
+        val speakFirst = spoken.toString().trim()
+        val hasScreen = plan.actions.any { it.tool == "screen_action" }
+        // Screen control mein pehle bol do, warna app badalne ke baad awaaz kat sakti hai
+        if (hasScreen && speakFirst.isNotBlank()) speak(speakFirst)
+
+        Thread {
+            val extra = StringBuilder()
+            for (a in plan.actions) {
+                val status = executor.execute(a)
+                runOnUiThread { log("  ⚙", status) }
+                if (a.tool == "read_battery") extra.append(" ").append(batterySpeech())
+                val opensApp = a.tool == "open_app" ||
+                    (a.tool == "screen_action" && a.params.optString("action") == "open")
+                // Agle screen step se pehle app/screen ko load hone do
+                if (plan.actions.size > 1) {
+                    try { Thread.sleep(if (opensApp) 2200L else if (a.tool == "screen_action") 900L else 150L) } catch (_: InterruptedException) {}
+                }
+            }
+            runOnUiThread {
+                val text = if (hasScreen) extra.toString().trim() else (speakFirst + extra).trim()
+                speak(text)
+            }
+        }.start()
     }
 
     private fun isIndicTts() = languages[langIndex].tts != "en-IN"

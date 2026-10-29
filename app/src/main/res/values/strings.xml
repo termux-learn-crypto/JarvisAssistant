@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Maira</string>
+    <string name="accessibility_desc">Maira tumhare bolne par screen pe type, click, scroll, back aur home kar sakti hai. Banking, UPI aur password apps mein ye kaam nahi karta.</string>
 </resources>
