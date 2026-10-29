@@ -11,13 +11,25 @@ android {
         applicationId = "com.vilas.jarvis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "3.0"
+        versionCode = 14
+        versionName = "3.0.1"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
+    // Fixed key: har build same signature, taki update bina uninstall ke ho
+    signingConfigs {
+        create("maira") {
+            storeFile = rootProject.file("keystore/maira.p12")
+            storePassword = "maira123"
+            keyAlias = "maira"
+            keyPassword = "maira123"
+            storeType = "pkcs12"
+        }
+    }
+
     buildTypes {
-        release { isMinifyEnabled = false }
+        getByName("debug") { signingConfig = signingConfigs.getByName("maira") }
+        release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("maira") }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
