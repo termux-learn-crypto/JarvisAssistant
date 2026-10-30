@@ -201,8 +201,9 @@ ANS: <answer in 1-3 short sentences>
 Answer language: """
 
     /** Samajh na aaye to: ya to simple command (LocalBrain ke liye), ya seedha jawab. */
-    fun route(ctx: Context, command: String): Pair<String?, String> {
-        val out = generate(ctx, ROUTER + langLine(ctx), command)
+    fun route(ctx: Context, command: String, history: String = ""): Pair<String?, String> {
+        val user = if (history.isBlank()) command else "Earlier in this conversation:\n$history\n\nNow the user says: $command"
+        val out = generate(ctx, ROUTER + langLine(ctx), user)
         val line = out.trim()
         val cmd = Regex("(?is)^\\s*CMD\\s*:\\s*(.+)").find(line)?.groupValues?.get(1)?.lineSequence()?.firstOrNull()?.trim()
         if (!cmd.isNullOrBlank()) return cmd to ""

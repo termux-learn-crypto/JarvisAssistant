@@ -293,8 +293,23 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             text = "Jaldi khulo (aasaan mode, galti se zyada khul sakti hai)"
             isChecked = prefs.getBoolean("wake_easy", false)
         }
+        val screenBox = android.widget.CheckBox(this).apply {
+            text = "Screen band hone pe bhi \"Hey Maira\" suno (band karo = battery bachao)"
+            isChecked = prefs.getBoolean("wake_screenoff", true)
+        }
+        val liveBox = android.widget.CheckBox(this).apply {
+            text = "Baatcheet mode (Live jaisa, offline): bina \"bas\" ke lagatar baat"
+            isChecked = prefs.getBoolean("live", true)
+        }
+        val bargeBox = android.widget.CheckBox(this).apply {
+            text = "Maira bolte waqt beech mein tok sako"
+            isChecked = prefs.getBoolean("bargein", true)
+        }
         box.addView(wakeBox)
         box.addView(easyBox)
+        box.addView(screenBox)
+        box.addView(liveBox)
+        box.addView(bargeBox)
         box.addView(Button(this).apply {
             isAllCaps = false
             text = "Apni awaaz sikhao (\"Hey Maira\")"
@@ -324,6 +339,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     .putBoolean("quickmic", micBox.isChecked)
                     .putBoolean("wake", wakeBox.isChecked)
                     .putBoolean("wake_easy", easyBox.isChecked)
+                    .putBoolean("wake_screenoff", screenBox.isChecked)
+                    .putBoolean("live", liveBox.isChecked)
+                    .putBoolean("bargein", bargeBox.isChecked)
                     .apply()
                 applyWake()
                 QuickMic.refreshNotification(this)

@@ -68,6 +68,12 @@ class WakeService : Service() {
         val n = nb.build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(NID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         else startForeground(NID, n)
+        run {
+            val f = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
+            }
+            registerReceiver(screenRx, f); screenRxOn = true
+        }
         Thread {
             try {
                 det = HeyMairaDetector(this)
@@ -87,7 +93,19 @@ class WakeService : Service() {
         return START_STICKY
     }
 
+    private var screenRxOn = false
+    private var screenOff = false
+    private val screenRx = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            when (i?.action) {
+                Intent.ACTION_SCREEN_OFF -> if (!Brain.prefs(this@WakeService).getBoolean("wake_screenoff", true)) { screenOff = true; stopMic() }
+                Intent.ACTION_SCREEN_ON -> { screenOff = false; if (!paused) main.postDelayed({ listen() }, 300) }
+            }
+        }
+    }
+
     override fun onDestroy() {
+        if (screenRxOn) try { unregisterReceiver(screenRx) } catch (_: Exception) {}
         instance = null
         stopMic()
         det?.close(); det = null
@@ -97,7 +115,7 @@ class WakeService : Service() {
     /** Apna mic loop: AudioRecord -> HeyMairaDetector (har 80 ms score). */
     private fun listen() {
         val d = det ?: return
-        if (loop != null || paused) return
+        if (loop != null || paused || screenOff) return
         running = true
         loop = Thread {
             var rec: AudioRecord? = null

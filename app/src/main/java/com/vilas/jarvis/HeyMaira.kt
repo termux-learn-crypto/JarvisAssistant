@@ -36,9 +36,14 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
     private var lvl = 0f
     var gain = 1f; private set
 
+    // Battery: chup/shaant mein bhaari embedding model nahi chalta. Sirf awaaz aane pe (aur 2 sec baad tak).
+    private var floor = 200f
+    private var hot = 0
+    var skipped = 0L; private set
+
     fun reset() {
         java.util.Arrays.fill(hist, 0f); pend = 0
-        lvl = 0f; gain = 1f
+        lvl = 0f; gain = 1f; hot = 0
         melRows.clear(); repeat(76) { melRows.add(FloatArray(32) { 1f }) }
         feats.clear()
     }
@@ -47,7 +52,13 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
     fun feed(buf: ShortArray, n: Int): Float {
         var best = -1f
         var pk = 0
-        for (i in 0 until n) { val a = Math.abs(buf[i].toInt()); if (a > pk) pk = a }
+        var sq = 0.0
+        for (i in 0 until n) { val v = buf[i].toInt(); val a = Math.abs(v); if (a > pk) pk = a; sq += v.toDouble() * v }
+        val rms = if (n > 0) Math.sqrt(sq / n).toFloat() else 0f
+        // shor ka level dheere-dheere seekho (neeche jaldi, upar bahut dheere)
+        floor = if (rms < floor) floor * 0.9f + rms * 0.1f else floor + (rms - floor) * 0.003f
+        if (floor < 15f) floor = 15f
+        if (rms > floor * 1.5f + 15f) hot = 25 else if (hot > 0) hot--
         lvl = maxOf(pk.toFloat(), lvl * 0.97f)          // tez attack, ~2 sec mein dheere release
         gain = if (lvl < 1f) 1f else (TARGET / lvl).coerceIn(1f, MAX_GAIN)
         for (i in 0 until n) {
@@ -73,6 +84,10 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
             }
         }
         while (melRows.size > 120) melRows.removeAt(0)
+        if (hot == 0 && feats.size >= 16) {          // shaant: purana feature dohrao, model mat chalao
+            feats.add(feats.last()); feats.removeAt(0); skipped++
+            return 0f
+        }
         // 2) embedding (aakhri 76 mel rows)
         val win = FloatArray(76 * 32)
         val start = melRows.size - 76
