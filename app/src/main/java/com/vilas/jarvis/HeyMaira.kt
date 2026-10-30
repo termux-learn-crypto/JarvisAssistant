@@ -33,12 +33,12 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
     init { reset() }
 
     // Auto volume (AGC): door se / dheere bolne pe awaaz ko upar laata hai (max 8x), paas se pe kuch nahi karta.
-    private var env = 0f
+    private var lvl = 0f
     var gain = 1f; private set
 
     fun reset() {
         java.util.Arrays.fill(hist, 0f); pend = 0
-        env = 0f; gain = 1f
+        lvl = 0f; gain = 1f
         melRows.clear(); repeat(76) { melRows.add(FloatArray(32) { 1f }) }
         feats.clear()
     }
@@ -48,8 +48,8 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
         var best = -1f
         var pk = 0
         for (i in 0 until n) { val a = Math.abs(buf[i].toInt()); if (a > pk) pk = a }
-        env = maxOf(pk.toFloat(), env * 0.97f)          // tez attack, ~2 sec mein dheere release
-        gain = if (env < 1f) 1f else (TARGET / env).coerceIn(1f, MAX_GAIN)
+        lvl = maxOf(pk.toFloat(), lvl * 0.97f)          // tez attack, ~2 sec mein dheere release
+        gain = if (lvl < 1f) 1f else (TARGET / lvl).coerceIn(1f, MAX_GAIN)
         for (i in 0 until n) {
             hist[480 + pend] = (buf[i] * gain).coerceIn(-32768f, 32767f)
             pend++
