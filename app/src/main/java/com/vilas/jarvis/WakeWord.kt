@@ -126,7 +126,7 @@ class WakeService : Service() {
                     frames++
                     if (s > peak) peak = s
                     if (s >= th) hits++ else hits = 0
-                    if (hits >= 1) {
+                    if (hits >= 2) {   // 2 lagataar frames (160 ms): galat trigger kam
                         val shown = s
                         main.post { showHeard("Hey Maira ✓ (%.2f)".format(shown)) }
                         main.post { trigger() }
