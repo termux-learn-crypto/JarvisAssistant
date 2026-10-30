@@ -13,96 +13,26 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.zip.ZipInputStream
 
-/** "Hey Maira" sunne wala chhota offline model (Vosk, ~37 MB, ek baar download). */
+/** v5.0: "Hey Maira" model app ke andar hi hai (assets/wake), download ki zaroorat nahi. */
 object WakeModel {
-    private const val URL_ZIP = "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip"
-    private const val DIR = "vosk-model-small-en-in-0.4"
-
-    fun root(ctx: Context) = File(ctx.filesDir, "vosk")
-    fun path(ctx: Context) = File(root(ctx), DIR)
-    fun ready(ctx: Context) = File(root(ctx), "done").exists() && File(path(ctx), "am/final.mdl").exists()
-
-    @Volatile var downloading = false
-
-    /** Background thread pe download + unzip. progress(0..100), done(error ya null). */
-    fun download(ctx: Context, progress: (Int) -> Unit, done: (String?) -> Unit) {
-        if (downloading) return
-        downloading = true
-        Thread {
-            var err: String? = null
-            try {
-                val r = root(ctx); r.deleteRecursively(); r.mkdirs()
-                val c = URL(URL_ZIP).openConnection() as HttpURLConnection
-                c.connectTimeout = 20000; c.readTimeout = 30000
-                val total = c.contentLengthLong.takeIf { it > 0 } ?: 37_573_330L
-                var read = 0L
-                var lastPct = -1
-                val counting = object : java.io.FilterInputStream(c.inputStream.buffered()) {
-                    override fun read(b: ByteArray, off: Int, len: Int): Int {
-                        val n = super.read(b, off, len)
-                        if (n > 0) {
-                            read += n
-                            val pct = (read * 100 / total).toInt()
-                            if (pct != lastPct) { lastPct = pct; progress(pct) }
-                        }
-                        return n
-                    }
-                }
-                ZipInputStream(counting).use { z ->
-                    while (true) {
-                        val e = z.nextEntry ?: break
-                        val out = File(r, e.name)
-                        if (!out.canonicalPath.startsWith(r.canonicalPath)) continue
-                        if (e.isDirectory) out.mkdirs() else {
-                            out.parentFile?.mkdirs()
-                            out.outputStream().use { z.copyTo(it) }
-                        }
-                    }
-                }
-                File(r, "done").writeText("ok")
-            } catch (e: Exception) {
-                err = e.message ?: "download fail"
-            }
-            downloading = false
-            done(err)
-        }.start()
-    }
+    fun ready(ctx: Context) = true
 }
 
 /** Hamesha chalne wali service: "Hey Maira" sunte hi quick mic khulta hai. */
 class WakeService : Service() {
 
     private val main = Handler(Looper.getMainLooper())
-    private var model: Model? = null
+    private var det: HeyMairaDetector? = null
     @Volatile private var loop: Thread? = null
     @Volatile private var running = false
     private var paused = false
     private var lastTrigger = 0L
-
-    // Vosk ka chhota model "Maira" ko aksar "mirror"/"mira" likhta hai (test kiya), aur "mera" ko bhi "mirror".
-    // Isliye "Hey/Hi/OK" ke saath wala hi pakka maante hain; "easy" mode mein sirf naam bhi chalega.
-    // Grammar: Vosk ko sirf ye shabd sunne do (baaki sab "[unk]"). Test mein bina grammar ke "Hey Maira" lagbhag kabhi nahi pakda jata tha.
-    private val names = listOf("mirror", "myra", "mira", "mayor", "meera", "maria", "moira", "maya", "mara")
-    private val prefixes = listOf("hey", "hi", "okay", "hello")
-    private val grammar: String = org.json.JSONArray(
-        prefixes.flatMap { p -> names.map { "$p $it" } } + names + prefixes + listOf("[unk]")
-    ).toString()
-    // Normal: "hey/hi/okay" + naam ("mira/maria/maya" chhode kyunki "mera" se galti hoti hai)
-    private val wake = Regex("\\b(hey|hi|okay)\\s+(mirror|myra|mayor|mara|moira|meera)\\b")
-    // Easy: koi bhi naam jaisa shabd
-    private val easyWake = Regex("\\b(mirror|myra|mira|mayor|meera|maria|moira|maya|mara)\\b")
     private var lastShown = 0L
     private var notifBuilder: Notification.Builder? = null
 
@@ -111,7 +41,7 @@ class WakeService : Service() {
         if (now - lastShown < 1200) return
         lastShown = now
         val b = notifBuilder ?: return
-        b.setContentText("Suna: \"$t\" — bolo \"Hey Maira\"")
+        b.setContentText("Suna: $t — bolo \"Hey Maira\"")
         getSystemService(NotificationManager::class.java).notify(NID, b.build())
     }
 
@@ -140,7 +70,7 @@ class WakeService : Service() {
         else startForeground(NID, n)
         Thread {
             try {
-                model = Model(WakeModel.path(this).absolutePath)
+                det = HeyMairaDetector(this)
                 main.post { if (!paused) listen() }
             } catch (e: Exception) {
                 main.post { stopSelf() }
@@ -160,20 +90,19 @@ class WakeService : Service() {
     override fun onDestroy() {
         instance = null
         stopMic()
-        model?.close(); model = null
+        det?.close(); det = null
         super.onDestroy()
     }
 
-    /** Apna mic loop: VOICE_COMMUNICATION + echo cancel, taaki phone ka apna gaana/video wake word na bane. */
+    /** Apna mic loop: AudioRecord -> HeyMairaDetector (har 80 ms score). */
     private fun listen() {
-        val m = model ?: return
+        val d = det ?: return
         if (loop != null || paused) return
         running = true
         loop = Thread {
             var rec: AudioRecord? = null
             var aec: AcousticEchoCanceler? = null
             var ns: NoiseSuppressor? = null
-            var vr: Recognizer? = null
             try {
                 val min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 val size = maxOf(min, 8192)
@@ -181,25 +110,43 @@ class WakeService : Service() {
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size * 2)
                 if (rec.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("mic")
                 if (AcousticEchoCanceler.isAvailable()) aec = AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
-                if (NoiseSuppressor.isAvailable()) ns = NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true }
-                val r0 = try { Recognizer(m, 16000f, grammar) } catch (_: Exception) { Recognizer(m, 16000f) }
-                vr = r0
+                // NoiseSuppressor kuch phones pe awaaz bigaadta hai; model khud noise ke saath train hai, isliye band
+                d.reset()
                 rec.startRecording()
-                val buf = ByteArray(4096)
-                var sinceReset = 0
+                val buf = ShortArray(1280)
+                var th = HeyMairaDetector.threshold(this)
+                var frames = 0
+                var peak = 0f
+                var hits = 0
                 while (running) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n <= 0) continue
-                    if (r0.acceptWaveForm(buf, n)) { check(r0.result, "text"); sinceReset = 0 }
-                    else check(r0.partialResult, "partial")
-                    sinceReset += n
-                    if (sinceReset > 16000 * 2 * 8) { r0.reset(); sinceReset = 0 }  // lambi baat-cheet/gaana: har 8s reset
+                    val s = d.feed(buf, n)
+                    if (s < 0f) continue
+                    frames++
+                    if (s > peak) peak = s
+                    if (s >= th) hits++ else hits = 0
+                    if (hits >= 1) {
+                        val shown = s
+                        main.post { showHeard("Hey Maira ✓ (%.2f)".format(shown)) }
+                        main.post { trigger() }
+                        hits = 0
+                        d.reset()
+                    }
+                    if (frames % 25 == 0) {          // har 2 sec: debug + threshold refresh
+                        if (peak >= 0.05f) {
+                            val p = peak; val t = th
+                            main.post { showHeard("%.2f (chahiye %.2f)".format(p, t)) }
+                        }
+                        peak = 0f
+                        th = HeyMairaDetector.threshold(this)
+                    }
                 }
             } catch (e: Exception) {
                 if (running && !paused) main.postDelayed({ loop = null; listen() }, 3000)
             } finally {
                 try { rec?.stop() } catch (_: Exception) {}
-                rec?.release(); aec?.release(); ns?.release(); vr?.close()
+                rec?.release(); aec?.release(); ns?.release()
             }
         }.also { it.start() }
     }
@@ -208,15 +155,6 @@ class WakeService : Service() {
         running = false
         val t = loop; loop = null
         if (t != null && t != Thread.currentThread()) try { t.join(600) } catch (_: Exception) {}
-    }
-
-    private fun check(json: String?, key: String) {
-        val t = try { JSONObject(json ?: return).optString(key) } catch (_: Exception) { return }
-        if (t.isBlank()) return
-        val low = t.lowercase()
-        main.post { showHeard(low) }
-        val easy = Brain.prefs(this).getBoolean("wake_easy", false)
-        if (wake.containsMatchIn(low) || (easy && easyWake.containsMatchIn(low))) main.post { trigger() }
     }
 
     private fun trigger() {
