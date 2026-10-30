@@ -67,6 +67,20 @@ object Brain {
     }
 
     /** Background thread se call karo. */
+    // ---- Baatcheet ki yaad (Live mode): pichhli kuch baatein, 3 min chup rehne pe bhool jao ----
+    private val hist = ArrayList<Pair<String, String>>()
+    private var histAt = 0L
+    @Synchronized fun remember(user: String, reply: String) {
+        if (System.currentTimeMillis() - histAt > 180_000) hist.clear()
+        hist.add(user.take(200) to reply.take(300)); while (hist.size > 6) hist.removeAt(0)
+        histAt = System.currentTimeMillis()
+    }
+    @Synchronized fun historyText(): String {
+        if (hist.isEmpty() || System.currentTimeMillis() - histAt > 180_000) return ""
+        return hist.joinToString("\n") { "User: ${it.first}\nMaira: ${it.second}" }
+    }
+    @Synchronized fun forget() { hist.clear() }
+
     fun plan(ctx: Context, command: String): Plan {
         // "agent ..." bola to seedha agent
         if (Agent.forced(command)) return agentPlan(ctx, Agent.stripForce(command))
@@ -81,7 +95,7 @@ object Brain {
         } else if (local != null) return local
         if (!smart(ctx) && LocalLlm.ready(ctx)) {
             return try {
-                val (cmd, ans) = LocalLlm.route(ctx, command)
+                val (cmd, ans) = LocalLlm.route(ctx, command, historyText())
                 if (cmd != null && cmd.startsWith("AGENT:")) return agentPlan(ctx, cmd.removePrefix("AGENT:").trim().ifBlank { command })
                 cmd?.let { c -> LocalBrain.parse(ctx, c)?.let { return it } }
                 val reply = ans.ifBlank { if (lang(ctx).mode == "English") "Sorry, I didn't get that." else "Sorry yaar, ye samajh nahi aaya." }
@@ -106,7 +120,8 @@ object Brain {
             }
             return Plan(emptyList(), false, r, sp)
         }
-        val msg = "Voice mode: ${lang(ctx).mode}\nCommand: $command"
+        val h = historyText()
+        val msg = "Voice mode: ${lang(ctx).mode}\n" + (if (h.isNotBlank()) "Recent conversation (for context only):\n$h\n" else "") + "Command: $command"
         return Plan.parse(GeminiClient(apiKey(ctx), model(ctx)).generate(systemPrompt(ctx), msg))
     }
 

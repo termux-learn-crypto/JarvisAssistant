@@ -89,6 +89,9 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var executor: ActionExecutor
     private var session = false      // lagatar sunne wala mode
+    private var live = false         // Baatcheet (Live jaisa) mode: bina "bas" ke lagatar baat
+    @Volatile private var working = false
+    private var barge: BargeIn? = null
     private var misses = 0
     private var closing = false
     private var focusReq: android.media.AudioFocusRequest? = null
@@ -156,6 +159,8 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         val wrap = FrameLayout(this).apply { setPadding(dp(10), 0, dp(10), dp(16)); addView(card) }
         setContentView(wrap)
 
+        live = Brain.prefs(this).getBoolean("live", true)
+        if (live) session = true
         holdFocus()
         tts = TextToSpeech(this, this)
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -174,6 +179,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         closing = true
+        stopBarge()
         recognizer?.destroy()
         tts?.shutdown()
         releaseFocus()
@@ -195,7 +201,8 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
     /** Ek kaam khatam: session mein phir suno, warna band. */
     private fun next() {
         if (closing) return
-        if (session) main.postDelayed({ if (!closing) listen() }, 350) else main.postDelayed({ finish() }, 500)
+        // Echo Guard: Maira ki awaaz khatam hone ke 450 ms baad hi mic khulta hai
+        if (session) main.postDelayed({ if (!closing) listen() }, 450) else main.postDelayed({ finish() }, 500)
     }
 
     private fun listen() {
@@ -205,9 +212,10 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
             return
         }
         recognizer?.destroy()
+        stopBarge()
         holdFocus()
         val lang = Brain.lang(this).rec
-        status.text = if (session) "Bolo… (band karne ke liye \"bas\")" else "Sun rahi hoon…"
+        status.text = if (live) "Bolo… (beech mein tok bhi sakte ho)" else if (session) "Bolo… (band karne ke liye \"bas\")" else "Sun rahi hoon…"
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(p: Bundle?) {}
@@ -227,7 +235,8 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
                         main.postDelayed({ endSession() }, 6000); return
                     }
                     misses++
-                    if (session && misses < 4) { listen(); return }
+                    if (session && misses < (if (live) 3 else 4)) { listen(); return }
+                    if (live) { status.text = "Theek hai, jab chaho \"Hey Maira\" bolna."; main.postDelayed({ endSession() }, 900); return }
                     status.text = "Kuch sunai nahi diya."
                     main.postDelayed({ endSession() }, 1200)
                 }
@@ -258,6 +267,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
             return
         }
         status.text = "Ek sec…"
+        lastHeard = text
         Thread {
             val r = try { Result.success(Brain.plan(this, text)) } catch (e: Exception) { Result.failure(e) }
             runOnUiThread {
@@ -271,7 +281,10 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
 
     private val SESSION_TOOLS = setOf("mouse", "gesture", "labels", "keyboard", "screen_action", "read_screen")
 
+    private var lastHeard = ""
+
     private fun onPlan(plan: Plan) {
+        Brain.remember(lastHeard, plan.reply.ifBlank { plan.speech })
         if (plan.actions.any { it.tool in SESSION_TOOLS }) session = true
         if (plan.reply.isNotBlank()) status.text = plan.reply
         if (plan.actions.isEmpty() || plan.actions.all { it.tool == "ask_user" }) {
@@ -294,12 +307,14 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
         if (plan.actions.any { it.tool == "play_music" || it.tool == "open_url" ||
                 (it.tool == "media_control" && it.params.optString("action") in PLAY_ACTS) }) releaseFocus()
         val first = if (announce) plan.speech.trim() else ""
+        working = true
         if (first.isNotBlank()) say(first, then = null)
         Thread {
             val extra = Brain.execute(this, executor, plan,
                 log = { w, m -> runOnUiThread { if (w == "Maira") status.text = m else heard.text = m.trim() } },
                 hideSelf = { })
             runOnUiThread {
+                working = false
                 when {
                     extra.isNotBlank() -> say(extra, queue = true) { next() }
                     pendingSpeech != null || (ttsReady && tts?.isSpeaking == true) -> afterSpeech = { next() }
@@ -325,7 +340,7 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) {
                 main.post {
-                    if (tts?.isSpeaking != true) { val cb = afterSpeech; afterSpeech = null; cb?.invoke() }
+                    if (tts?.isSpeaking != true) { stopBarge(); val cb = afterSpeech; afterSpeech = null; cb?.invoke() }
                 }
             }
             @Deprecated("Deprecated in Java") override fun onError(id: String?) {
@@ -347,5 +362,79 @@ class QuickMicActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun speakNow(text: String, queue: Boolean) {
         tts?.speak(clean(text), if (queue) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH, null, "q" + System.nanoTime())
+        startBarge()
+    }
+
+    // ---------- Beech mein tokna (barge-in) ----------
+
+    private fun startBarge() {
+        if (!live || closing || working || barge != null) return
+        if (!Brain.prefs(this).getBoolean("bargein", true)) return
+        if (afterSpeech == null) return   // sirf tab jab bolne ke baad sunna hi hai
+        barge = BargeIn { main.post { onBarge() } }.also { it.start() }
+    }
+
+    private fun stopBarge() { barge?.stop(); barge = null }
+
+    private fun onBarge() {
+        if (closing || working) return
+        barge = null
+        afterSpeech = null
+        try { tts?.stop() } catch (_: Exception) {}
+        status.text = "Haan, bolo…"
+        main.postDelayed({ if (!closing) listen() }, 120)
+    }
+}
+
+
+/**
+ * Maira bol rahi ho tab mic pe nazar: user zor se bole to Maira chup.
+ * Pehle ~300 ms mein speaker ki goonj (echo) ka level naapta hai, phir usse kaafi tez awaaz 200 ms tak mile to tokna maana.
+ * VOICE_COMMUNICATION + echo canceller, taaki Maira ki apni awaaz se na ruke.
+ */
+class BargeIn(private val onHit: () -> Unit) {
+    @Volatile private var run = true
+    private var th: Thread? = null
+
+    fun start() {
+        th = Thread {
+            var rec: android.media.AudioRecord? = null
+            var aec: android.media.audiofx.AcousticEchoCanceler? = null
+            try {
+                val sr = 16000
+                val min = android.media.AudioRecord.getMinBufferSize(sr, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT)
+                rec = android.media.AudioRecord(android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, sr,
+                    android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, maxOf(min, 4096) * 2)
+                if (rec.state != android.media.AudioRecord.STATE_INITIALIZED) return@Thread
+                if (android.media.audiofx.AcousticEchoCanceler.isAvailable())
+                    aec = android.media.audiofx.AcousticEchoCanceler.create(rec.audioSessionId)?.apply { enabled = true }
+                rec.startRecording()
+                val buf = ShortArray(800)   // 50 ms
+                var frames = 0
+                var base = 0.0
+                var hits = 0
+                while (run) {
+                    val n = rec.read(buf, 0, buf.size)
+                    if (n <= 0) continue
+                    var sq = 0.0
+                    for (i in 0 until n) sq += buf[i].toDouble() * buf[i]
+                    val rms = Math.sqrt(sq / n)
+                    frames++
+                    if (frames <= 6) { base = maxOf(base, rms); continue }   // echo ka level
+                    if (rms > maxOf(base * 3.0, 1100.0)) hits++ else hits = 0
+                    if (hits >= 4) { run = false; onHit(); break }
+                }
+            } catch (_: Exception) {
+            } finally {
+                try { rec?.stop() } catch (_: Exception) {}
+                rec?.release(); aec?.release()
+            }
+        }.also { it.start() }
+    }
+
+    fun stop() {
+        run = false
+        th?.let { if (it != Thread.currentThread()) try { it.join(300) } catch (_: Exception) {} }
+        th = null
     }
 }
