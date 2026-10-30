@@ -120,17 +120,17 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
 
     companion object {
         const val CHUNK = 1280
-        const val DEFAULT_TH = 0.5f
+        const val DEFAULT_TH = 0.6f
         const val TARGET = 9000f
         const val MAX_GAIN = 8f
 
         /** Settings / calibration ke hisaab se threshold. */
         fun threshold(ctx: Context): Float {
             val p = Brain.prefs(ctx)
-            var th = p.getFloat("wake_th", DEFAULT_TH)
+            var th = p.getFloat("wake_th2", DEFAULT_TH)
             val easy = p.getBoolean("wake_easy", false)
             if (easy) th *= 0.6f
-            return th.coerceIn(if (easy) 0.15f else 0.3f, 0.95f)
+            return th.coerceIn(if (easy) 0.3f else 0.45f, 0.95f)
         }
     }
 }
@@ -188,6 +188,6 @@ object WakeTrainer {
         val good = scores.filter { it >= 0.05f }.sorted()
         if (good.size < 3) return null
         val ref = if (good.size >= 5) good[1] else good.first()
-        return (ref * 0.6f).coerceIn(0.3f, 0.6f)
+        return (ref * 0.65f).coerceIn(0.5f, 0.7f)
     }
 }

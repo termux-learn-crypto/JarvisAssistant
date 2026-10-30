@@ -407,7 +407,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                         if (th == null) {
                             status.text = "Scores: $line\nZyada takes mein \"Hey Maira\" nahi pakda gaya. Button dabane ke baad saaf bolo, phir dobara sikhao."
                         } else {
-                            prefs.edit().putFloat("wake_th", th).apply()
+                            prefs.edit().putFloat("wake_th2", th).apply()
                             val miss = scores.count { it < 0.05f }
                             status.text = "Ho gaya! Scores: $line\nTumhari awaaz ke hisaab se threshold %.2f set kiya.".format(th) +
                                 (if (miss > 0) "\n($miss take mein awaaz nahi pakdi, unhe chhod diya.)" else "")
