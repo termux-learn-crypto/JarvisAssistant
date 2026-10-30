@@ -158,21 +158,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (!prefs.getBoolean("wake", false)) { WakeService.stop(this); return }
         if (MairaAccessibilityService.instance == null)
             log("Maira", "Wake word ke baad mic khulne ke liye Accessibility mein Maira on rakho.")
-        if (WakeModel.ready(this)) {
-            WakeService.start(this)
-            log("Maira", "Ab bolo \"Hey Maira\", main sun rahi hoon.")
-            return
-        }
-        log("Maira", "Wake word model download ho raha hai (37 MB)…")
-        var last = -10
-        WakeModel.download(this, progress = { p ->
-            if (p >= last + 10) { last = p; runOnUiThread { log("Maira", "Download: $p%") } }
-        }, done = { err ->
-            runOnUiThread {
-                if (err != null) log("Maira", "Download fail: $err. Net check karke settings se dobara on karo.")
-                else { WakeService.start(this); log("Maira", "Ho gaya! Ab bolo \"Hey Maira\".") }
-            }
-        })
+        WakeService.start(this)
+        log("Maira", "Ab bolo \"Hey Maira\", main sun rahi hoon. Pakka pakadne ke liye Settings mein \"Apni awaaz sikhao\" ek baar karo.")
     }
 
     override fun onResume() {
@@ -303,11 +290,16 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         box.addView(skipBox)
         box.addView(micBox)
         val easyBox = android.widget.CheckBox(this).apply {
-            text = "Sirf \"Maira\" bolne pe bhi khulo (galti se zyada khul sakti hai)"
+            text = "Jaldi khulo (aasaan mode, galti se zyada khul sakti hai)"
             isChecked = prefs.getBoolean("wake_easy", false)
         }
         box.addView(wakeBox)
         box.addView(easyBox)
+        box.addView(Button(this).apply {
+            isAllCaps = false
+            text = "Apni awaaz sikhao (\"Hey Maira\")"
+            setOnClickListener { showVoiceTrain() }
+        })
         box.addView(accBtn)
         val aiBtn = Button(this).apply {
             isAllCaps = false
@@ -334,6 +326,66 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    // ---------------- Apni awaaz sikhao ----------------
+
+    private fun showVoiceTrain() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_PERMS); return
+        }
+        WakeService.instance?.pauseMic()
+        val total = 6
+        val scores = mutableListOf<Float>()
+        var det: HeyMairaDetector? = null
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+        val status = TextView(this).apply {
+            text = "$total baar \"Hey Maira\" bolna hai, jaise roz bologe. Button dabao, phir 2 second ke andar bolo."
+            textSize = 16f
+        }
+        val btn = Button(this).apply { isAllCaps = false; text = "Bolo (1/$total)" }
+        box.addView(status); box.addView(btn)
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Apni awaaz sikhao")
+            .setView(box)
+            .setNegativeButton("Band karo", null)
+            .create()
+        dlg.setOnDismissListener {
+            Thread { try { det?.close() } catch (_: Exception) {} }.start()
+            WakeService.instance?.resumeMic()
+        }
+        btn.setOnClickListener {
+            btn.isEnabled = false
+            status.text = "Bolo: \"Hey Maira\"…"
+            Thread {
+                val sc = try {
+                    val d = det ?: HeyMairaDetector(this).also { det = it }
+                    WakeTrainer.recordScore(this, d)
+                } catch (e: Exception) { -1f }
+                runOnUiThread {
+                    if (sc < 0f) { status.text = "Mic nahi mila. Mic permission check karo."; btn.isEnabled = true; return@runOnUiThread }
+                    scores.add(sc)
+                    val n = scores.size
+                    val line = scores.joinToString("  ") { "%.2f".format(it) }
+                    if (n < total) {
+                        status.text = "Sample $n: score %.2f\nSab: $line\nAb phir se bolo.".format(sc)
+                        btn.text = "Bolo (${n + 1}/$total)"
+                        btn.isEnabled = true
+                    } else {
+                        val th = WakeTrainer.pickThreshold(scores)
+                        prefs.edit().putFloat("wake_th", th).apply()
+                        val weak = scores.sorted()[1] < 0.2f
+                        status.text = "Ho gaya! Scores: $line\nTumhari awaaz ke hisaab se threshold %.2f set kiya.".format(th) +
+                            (if (weak) "\nScores kam aaye: phone thoda paas rakh ke saaf \"Hey Maira\" bolo, ya dobara sikhao." else "")
+                        btn.text = "Dobara sikhao"
+                        btn.isEnabled = true
+                        scores.clear()
+                        log("Maira", "Awaaz seekh li! Threshold %.2f.".format(th))
+                    }
+                }
+            }.start()
+        }
+        dlg.show()
     }
 
     // ---------------- Permissions ----------------
