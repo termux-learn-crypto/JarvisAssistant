@@ -102,8 +102,9 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
         fun threshold(ctx: Context): Float {
             val p = Brain.prefs(ctx)
             var th = p.getFloat("wake_th", DEFAULT_TH)
-            if (p.getBoolean("wake_easy", false)) th *= 0.6f
-            return th.coerceIn(0.05f, 0.95f)
+            val easy = p.getBoolean("wake_easy", false)
+            if (easy) th *= 0.6f
+            return th.coerceIn(if (easy) 0.15f else 0.3f, 0.95f)
         }
     }
 }
@@ -130,6 +131,11 @@ object WakeTrainer {
             try { rec.stop() } catch (_: Exception) {}
             rec.release()
         }
+        // Mic se awaaz hi nahi aayi (mic kisi aur ke paas tha) -> -2 (gina nahi jayega)
+        var sum = 0.0
+        for (v in audio) sum += v.toDouble() * v
+        val rms = Math.sqrt(sum / audio.size)
+        if (rms < 30.0) return -2f
         return scoreOf(det, audio)
     }
 
@@ -151,9 +157,11 @@ object WakeTrainer {
     }
 
     /** Scores se threshold: ek-do miss maaf, phir thoda neeche rakho; had se zyada neeche nahi. */
-    fun pickThreshold(scores: List<Float>): Float {
-        val s = scores.sorted()
-        val ref = if (s.size >= 5) s[1] else s.first()
-        return (ref * 0.75f).coerceIn(0.15f, 0.6f)
+    /** 0.05 se kam = woh take fail hua (der se bola / mic busy), use chhod do. Kam se kam 3 achhe chahiye. */
+    fun pickThreshold(scores: List<Float>): Float? {
+        val good = scores.filter { it >= 0.05f }.sorted()
+        if (good.size < 3) return null
+        val ref = if (good.size >= 5) good[1] else good.first()
+        return (ref * 0.6f).coerceIn(0.3f, 0.6f)
     }
 }
