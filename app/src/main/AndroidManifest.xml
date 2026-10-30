@@ -54,6 +54,19 @@
         </activity>
 
         <activity
+            android:name=".TrainerActivity"
+            android:exported="true"
+            android:label="Maira Trainer"
+            android:icon="@android:drawable/ic_btn_speak_now"
+            android:taskAffinity="com.vilas.jarvis.trainer"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".QuickMicActivity"
             android:exported="false"
             android:label="Maira"

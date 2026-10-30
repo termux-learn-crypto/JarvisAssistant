@@ -300,6 +300,11 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             text = "Apni awaaz sikhao (\"Hey Maira\")"
             setOnClickListener { showVoiceTrain() }
         })
+        box.addView(Button(this).apply {
+            isAllCaps = false
+            text = "Maira Trainer (wake word recordings)"
+            setOnClickListener { startActivity(Intent(this@MainActivity, TrainerActivity::class.java)) }
+        })
         box.addView(accBtn)
         val aiBtn = Button(this).apply {
             isAllCaps = false
