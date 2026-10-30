@@ -340,10 +340,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         var det: HeyMairaDetector? = null
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
         val status = TextView(this).apply {
-            text = "$total baar \"Hey Maira\" bolna hai, jaise roz bologe. Button dabao, phir 2 second ke andar bolo."
+            text = "$total baar \"Hey Maira\" bolna hai. Pehle 3 baar phone ke paas se, phir 3 baar 2-3 meter door se normal awaaz mein. Button dabao, phir 2 second ke andar bolo."
             textSize = 16f
         }
-        val btn = Button(this).apply { isAllCaps = false; text = "Bolo (1/$total)" }
+        val btn = Button(this).apply { isAllCaps = false; text = "Bolo paas se (1/$total)" }
         box.addView(status); box.addView(btn)
         val dlg = AlertDialog.Builder(this)
             .setTitle("Apni awaaz sikhao")
@@ -362,6 +362,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     val first = det == null
                     val d = det ?: HeyMairaDetector(this).also { det = it }
                     if (first) Thread.sleep(900)  // wake service ka mic poori tarah chhootne do
+                    if (scores.size >= 3) {       // door wale takes: chal ke jaane ka time
+                        for (k in 4 downTo 1) { runOnUiThread { status.text = "Door jao… $k sec baad bolna" }; Thread.sleep(1000) }
+                        runOnUiThread { status.text = "Ab bolo: \"Hey Maira\"!" }
+                    }
                     WakeTrainer.recordScore(this, d)
                 } catch (e: Exception) { -1f }
                 runOnUiThread {
@@ -371,8 +375,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     val n = scores.size
                     val line = scores.joinToString("  ") { "%.2f".format(it) }
                     if (n < total) {
-                        status.text = "Sample $n: score %.2f\nSab: $line\nAb phir se bolo.".format(sc)
-                        btn.text = "Bolo (${n + 1}/$total)"
+                        status.text = "Sample $n: score %.2f\nSab: $line\n".format(sc) +
+                            (if (n < 3) "Ab phir paas se bolo." else if (n == 3) "Ab button dabao, phone yahin rakh ke 2-3 meter door jao, 4 sec baad wahan se bolo." else "Phir dabao aur door se bolo.")
+                        btn.text = if (n < 3) "Bolo paas se (${n + 1}/$total)" else "Bolo door se (${n + 1}/$total)"
                         btn.isEnabled = true
                     } else {
                         val th = WakeTrainer.pickThreshold(scores)

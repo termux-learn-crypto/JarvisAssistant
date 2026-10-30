@@ -32,8 +32,13 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
 
     init { reset() }
 
+    // Auto volume (AGC): door se / dheere bolne pe awaaz ko upar laata hai (max 8x), paas se pe kuch nahi karta.
+    private var env = 0f
+    var gain = 1f; private set
+
     fun reset() {
         java.util.Arrays.fill(hist, 0f); pend = 0
+        env = 0f; gain = 1f
         melRows.clear(); repeat(76) { melRows.add(FloatArray(32) { 1f }) }
         feats.clear()
     }
@@ -41,8 +46,12 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
     /** Naye samples do. Is call mein bane scores mein se sabse bada lautata hai (koi nahi bana to -1). */
     fun feed(buf: ShortArray, n: Int): Float {
         var best = -1f
+        var pk = 0
+        for (i in 0 until n) { val a = Math.abs(buf[i].toInt()); if (a > pk) pk = a }
+        env = maxOf(pk.toFloat(), env * 0.97f)          // tez attack, ~2 sec mein dheere release
+        gain = if (env < 1f) 1f else (TARGET / env).coerceIn(1f, MAX_GAIN)
         for (i in 0 until n) {
-            hist[480 + pend] = buf[i].toFloat()
+            hist[480 + pend] = (buf[i] * gain).coerceIn(-32768f, 32767f)
             pend++
             if (pend == CHUNK) {
                 val s = step()
@@ -97,6 +106,8 @@ class HeyMairaDetector(ctx: Context) : AutoCloseable {
     companion object {
         const val CHUNK = 1280
         const val DEFAULT_TH = 0.5f
+        const val TARGET = 9000f
+        const val MAX_GAIN = 8f
 
         /** Settings / calibration ke hisaab se threshold. */
         fun threshold(ctx: Context): Float {
