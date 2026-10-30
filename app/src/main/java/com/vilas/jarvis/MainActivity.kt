@@ -359,10 +359,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             status.text = "Bolo: \"Hey Maira\"…"
             Thread {
                 val sc = try {
+                    val first = det == null
                     val d = det ?: HeyMairaDetector(this).also { det = it }
+                    if (first) Thread.sleep(900)  // wake service ka mic poori tarah chhootne do
                     WakeTrainer.recordScore(this, d)
                 } catch (e: Exception) { -1f }
                 runOnUiThread {
+                    if (sc == -2f) { status.text = "Awaaz nahi aayi (mic busy tha). Phir se dabao aur bolo."; btn.isEnabled = true; return@runOnUiThread }
                     if (sc < 0f) { status.text = "Mic nahi mila. Mic permission check karo."; btn.isEnabled = true; return@runOnUiThread }
                     scores.add(sc)
                     val n = scores.size
@@ -373,14 +376,18 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                         btn.isEnabled = true
                     } else {
                         val th = WakeTrainer.pickThreshold(scores)
-                        prefs.edit().putFloat("wake_th", th).apply()
-                        val weak = scores.sorted()[1] < 0.2f
-                        status.text = "Ho gaya! Scores: $line\nTumhari awaaz ke hisaab se threshold %.2f set kiya.".format(th) +
-                            (if (weak) "\nScores kam aaye: phone thoda paas rakh ke saaf \"Hey Maira\" bolo, ya dobara sikhao." else "")
+                        if (th == null) {
+                            status.text = "Scores: $line\nZyada takes mein \"Hey Maira\" nahi pakda gaya. Button dabane ke baad saaf bolo, phir dobara sikhao."
+                        } else {
+                            prefs.edit().putFloat("wake_th", th).apply()
+                            val miss = scores.count { it < 0.05f }
+                            status.text = "Ho gaya! Scores: $line\nTumhari awaaz ke hisaab se threshold %.2f set kiya.".format(th) +
+                                (if (miss > 0) "\n($miss take mein awaaz nahi pakdi, unhe chhod diya.)" else "")
+                            log("Maira", "Awaaz seekh li! Threshold %.2f.".format(th))
+                        }
                         btn.text = "Dobara sikhao"
                         btn.isEnabled = true
                         scores.clear()
-                        log("Maira", "Awaaz seekh li! Threshold %.2f.".format(th))
                     }
                 }
             }.start()
