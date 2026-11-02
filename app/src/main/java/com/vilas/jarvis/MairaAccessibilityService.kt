@@ -180,6 +180,7 @@ class MairaAccessibilityService : AccessibilityService() {
                     tap(r.exactCenterX(), r.exactCenterY(), 60L)
                 }
                 Thread.sleep(900)
+                handlePopup()
                 count++
                 if (dbgRows.length < 400) dbgRows.append("tap:").append(key).append(if (ok) "/click" else "/touch").append(" ; ")
             }
@@ -189,6 +190,22 @@ class MairaAccessibilityService : AccessibilityService() {
             Thread.sleep(700)
         }
         return count
+    }
+
+    /** Alarm band karte waqt aane wala popup ("Turn off" / "Skip once" etc.) khud handle karo. */
+    private fun handlePopup() {
+        repeat(2) {
+            val ns = try { onMain { allNodes() } } catch (_: Exception) { return }
+            val btns = ns.filter { it.isVisibleToUser && it.isClickable && label(it).isNotBlank() && !it.isCheckable }
+            val good = Regex("(?i)turn\\s*off|band|बंद|disable|close alarm|stop|^off$|^ok$|confirm|haan|yes|delete only|बंद करें")
+            val bad = Regex("(?i)skip|once|cancel|ek baar|sirf|edit|delete|रद्द|undo")
+            val b = btns.firstOrNull { val t = label(it).trim(); good.containsMatchIn(t) && !bad.containsMatchIn(t) && t.length < 30 }
+            if (dbgRows.length < 600) dbgRows.append("popup?[").append(btns.take(6).joinToString("|") { label(it).take(15) }).append("] ")
+            if (b == null) return
+            try { onMain { b.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
+            dbgRows.append("clicked:").append(label(b).take(15)).append(" ; ")
+            Thread.sleep(700)
+        }
     }
 
     @Volatile var lastDebug = ""

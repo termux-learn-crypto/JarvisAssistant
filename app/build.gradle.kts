@@ -12,8 +12,8 @@ android {
         applicationId = "com.vilas.jarvis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 38
-        versionName = "7.0"
+        versionCode = 39
+        versionName = "7.1"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
