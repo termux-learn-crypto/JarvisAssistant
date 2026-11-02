@@ -164,21 +164,22 @@ class MairaAccessibilityService : AccessibilityService() {
                 val band = dpx(55)
                 var txt = nodes.filter {
                     val r = android.graphics.Rect(); it.getBoundsInScreen(r)
-                    kotlin.math.abs(r.exactCenterY() - sr.exactCenterY()) < band && label(it).isNotBlank()
+                    it != s && !it.isCheckable && kotlin.math.abs(r.exactCenterY() - sr.exactCenterY()) < band && label(it).isNotBlank()
                 }.joinToString(" ") { label(it) }
                 txt = txt.replace(Regex("(\\d{1,2})\\s+(\\d{2})\\b"), "$1:$2")
                 if (pass == 0 && dbgRows.length < 300) dbgRows.append(txt.take(40)).append(" ; ")
                 if (!Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
                 val key = txt.take(60); if (!done.add(key)) continue
-                if (s.isClickable) try { onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
-                Thread.sleep(500)
-                s.refresh()
-                if (isOn(s)) { // click nahi laga to switch pe asli tap
+                // sirf EK baar toggle: dobara tap kabhi nahi (warna wapas ON ho jata hai)
+                var ok = false
+                try { ok = onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
+                if (!ok) {
                     val r = android.graphics.Rect(); s.getBoundsInScreen(r)
-                    tap(r.exactCenterX(), r.exactCenterY(), 60L); Thread.sleep(600); s.refresh()
+                    tap(r.exactCenterX(), r.exactCenterY(), 60L)
                 }
-                if (!isOn(s)) count++
+                Thread.sleep(900)
+                count++
             }
             if (!all && count > 0) return count
             val sc = nodes.firstOrNull { it.isScrollable }
