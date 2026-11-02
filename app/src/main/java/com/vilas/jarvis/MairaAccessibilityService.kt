@@ -153,15 +153,14 @@ class MairaAccessibilityService : AccessibilityService() {
         val done = HashSet<String>()
         repeat(6) { pass ->
             val nodes = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
-            val sw = nodes.filter {
-                val c = it.className?.toString() ?: ""
-                it.isCheckable && it.isChecked && it.isVisibleToUser &&
-                    (c.contains("Switch") || c.contains("Toggle") || c.contains("CompoundButton") || c.contains("CheckBox"))
-            }
+            val sw = nodes.filter { isOn(it) && it.isVisibleToUser }
+            if (pass == 0) lastDebug = nodes.filter { it.isCheckable || (it.className?.toString() ?: "").contains("Switch") }
+                .take(8).joinToString("; ") { (it.className?.toString()?.substringAfterLast('.') ?: "?") + "/" + it.isChecked + "/" + stateOf(it) + "/" + label(it).take(15) } +
+                " | pkg=" + (nodes.firstOrNull()?.packageName ?: "?")
             for (s in sw) {
                 var row: AccessibilityNodeInfo? = s.parent; var txt = ""
                 var up = 0
-                while (row != null && up < 4) {
+                while (row != null && up < 6) {
                     txt = rowText(row)
                     if (Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) break
                     row = row.parent; up++
@@ -172,11 +171,11 @@ class MairaAccessibilityService : AccessibilityService() {
                 if (s.isClickable) try { onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
                 Thread.sleep(500)
                 s.refresh()
-                if (s.isChecked) { // click nahi laga to switch pe asli tap
+                if (isOn(s)) { // click nahi laga to switch pe asli tap
                     val r = android.graphics.Rect(); s.getBoundsInScreen(r)
                     tap(r.exactCenterX(), r.exactCenterY(), 60L); Thread.sleep(600); s.refresh()
                 }
-                if (!s.isChecked) count++
+                if (!isOn(s)) count++
             }
             if (!all && count > 0) return count
             val sc = nodes.firstOrNull { it.isScrollable }
@@ -184,6 +183,19 @@ class MairaAccessibilityService : AccessibilityService() {
             Thread.sleep(700)
         }
         return count
+    }
+
+    @Volatile var lastDebug = ""
+    private fun stateOf(n: AccessibilityNodeInfo): String =
+        if (Build.VERSION.SDK_INT >= 30) (n.stateDescription?.toString() ?: "") else ""
+    private fun isOn(n: AccessibilityNodeInfo): Boolean {
+        val c = n.className?.toString() ?: ""
+        if (n.isCheckable && n.isChecked) return true
+        if (c.contains("Switch") || c.contains("Toggle")) {
+            val st = (stateOf(n) + " " + (n.contentDescription ?: "")).lowercase(Locale.ROOT)
+            return Regex("\\b(on|enabled|चालू|सुरू)\\b").containsMatchIn(st)
+        }
+        return false
     }
 
     private fun rowText(n: AccessibilityNodeInfo): String {
