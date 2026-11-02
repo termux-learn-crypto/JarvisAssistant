@@ -170,7 +170,8 @@ class MairaAccessibilityService : AccessibilityService() {
                 if (pass == 0 && dbgRows.length < 300) dbgRows.append(txt.take(40)).append(" ; ")
                 if (!Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
-                val key = txt.take(60); if (!done.add(key)) continue
+                val key = Regex("\\d{1,2}[:.]\\d{2}").find(txt)?.value?.replace('.', ':')?.trimStart('0') + "|" + Regex("(?i)\\b(am|pm)\\b").find(txt)?.value?.lowercase()
+                if (!done.add(key)) continue  // ek time ka alarm sirf ek baar
                 // sirf EK baar toggle: dobara tap kabhi nahi (warna wapas ON ho jata hai)
                 var ok = false
                 try { ok = onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
@@ -180,6 +181,7 @@ class MairaAccessibilityService : AccessibilityService() {
                 }
                 Thread.sleep(900)
                 count++
+                if (dbgRows.length < 400) dbgRows.append("tap:").append(key).append(if (ok) "/click" else "/touch").append(" ; ")
             }
             if (!all && count > 0) return count
             val sc = nodes.firstOrNull { it.isScrollable }
