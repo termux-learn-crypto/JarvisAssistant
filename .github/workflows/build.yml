@@ -43,7 +43,7 @@ jobs:
         with:
           tag_name: latest
           name: Maira latest build
-          body: "Maira v6.2: apna brain (zero se trained), chat-only. Phone pe Maira.apk download karke install karo."
+          body: "Maira v6.3: apna brain (zero se trained), chat-only. Phone pe Maira.apk download karke install karo."
           prerelease: false
           make_latest: true
           files: Maira.apk

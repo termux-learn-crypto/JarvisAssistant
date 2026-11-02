@@ -172,10 +172,31 @@ def make_alarm(tm, dm, now):
     return R_([{"tool": "set_alarm", "parameters": {"time": tm, "day": _DAYK[wd], "date": tgt.strftime("%Y-%m-%d")}}],
               f"Done! {_DAYN[wd]} ({tgt.day} {tgt.strftime('%b')}) {when} ka alarm laga diya. Phone ka alarm har {_DAYN[wd]} bajega, baad mein band karna ho to bolna.",
               f"हो गया! {_DAYN[wd]} {when} का अलार्म लगा दिया।")
+
+def multi_alarm(x, now):
+    toks = re.findall(r"\b(\d{1,2})(?:[:.](\d\d))?\b(?!\s*(?:minute|min|ghante|ghanta|second|tarikh|date|%))", x)
+    toks = [(int(h), int(m or 0)) for h, m in toks if 0 < int(h) <= 23]
+    if len(toks) < 2 or len(toks) > 10: return None
+    part = re.search(r"\b(subah|dopahar|shaam|sham|raat|am|pm|morning|evening|night)\b", x)
+    dm = norm_date(x) if _has_day(x) else None
+    if not part and any(h <= 12 for h, _ in toks) and dm and not re.search(r"\b(uthana|utha|jaga)\b", x):
+        return ask(f"{len(toks)} alarm: subah ke ya shaam ke?", f"सुबह के या शाम के?", ("alarm_multi", (toks, dm)))
+    return build_multi(toks, dm, part.group(1) if part else ("subah" if re.search(r"\b(uthana|utha|jaga)\b", x) else None), now)
+def build_multi(toks, dm, part, now):
+    acts, names = [], []
+    for h, m in toks:
+        if part: tm = norm_time(f"{h}:{m:02d} {part}") or f"{h:02d}:{m:02d}"
+        else: tm = f"{h:02d}:{m:02d}" if h > 12 else f"{h:02d}:{m:02d}?"
+        r = make_alarm(tm, dm, now)
+        if r["actions"] and r["actions"][0]["tool"] == "set_alarm": acts.append(r["actions"][0]); names.append(r["actions"][0]["parameters"]["time"])
+    if not acts: return R_([], "Ye time nikal chuka hai, alarm nahi lagaya.")
+    return R_(acts, f"Done! {len(acts)} alarm laga diye: " + ", ".join(names) + ".", f"{len(acts)} अलार्म लगा दिए।")
 def alarm_rule(text, now):
     x = pre(text).lower()
     if re.search(r"\b(alarm|alaram|uthana|utha dena|jaga dena|jagana)\b", x):
         if re.search(r"\b(band|cancel|hatao|delete|off|roj|roz|rooz|rojana|daily|har din|everyday|weekdays?|weekend)\b", x): return None
+        _m = multi_alarm(x, now)
+        if _m: return _m
         tm = norm_time(x)
         if not tm: return None
         if tm.endswith("?") and re.search(r"\b(uthana|utha dena|utha|jaga dena|jagana|jaga)\b", x): tm = tm[:-1]  # uthana = subah
@@ -226,6 +247,11 @@ def run(text, now=None, force=None):
             if r0 and r0["actions"] and r0["actions"][0]["tool"] not in ("fallback_llm", "ask_user", "send_sms", "agent_task", "open_app", "play_music", "make_call"): return r0
             PENDING = None
             return {"actions": [{"tool": "send_sms", "parameters": {"contact_name": d, "message": ans}}], "confirmationRequired": True, "reply": f"{d} ko message bhej rahi hoon: {ans}", "speech": f"{d} को मैसेज भेज रही हूँ।"}
+        if kind == "alarm_multi":
+            toks, dm = d; a = pre(ans).lower()
+            pm_ = re.search(r"\b(shaam|sham|pm|evening|raat|night|dopahar|afternoon)\b", a); am_ = re.search(r"\b(subah|savere|am|morning|sakali)\b", a)
+            if not (pm_ or am_): return run(text, now)
+            return build_multi(toks, dm, "shaam" if pm_ else "subah", now)
         if kind == "alarm_ap":
             tm, dm = d; h, mi = map(int, tm[:-1].split(":")); a = pre(ans).lower()
             if len(a.split()) > 3 or re.search(r"\d", a): return run(text, now)  # naya command
