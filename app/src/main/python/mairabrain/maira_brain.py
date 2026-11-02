@@ -39,7 +39,8 @@ def encode(ids):
     return x
 def gelu(x): return 0.5 * x * (1 + np.tanh(0.7978845608 * (x + 0.044715 * x ** 3)))
 
-from maira_norm import pre, norm_time, norm_date
+from maira_norm import pre, norm_time, norm_date, WD
+WD_KEYS = sorted(WD, key=len, reverse=True)
 def resolve(v, now):  # markers -> real date/time (app yahi karegi)
     if v.startswith("@w"):  # agla woh din (aaj ho to agle hafte)
         d = (int(v[2:]) - now.weekday()) % 7 or 7; return (now + datetime.timedelta(days=d)).strftime("%Y-%m-%d")
@@ -141,11 +142,59 @@ def yt_rule(text):
         return None
     if ytm: return R_([{"tool": "open_url", "parameters": {"url": "https://music.youtube.com/search?q=" + quote(q)}}], f"YouTube Music pe {q} laga rahi hoon.", f"यूट्यूब म्यूज़िक पर {q} लगा रही हूँ।")
     return R_([{"tool": "open_url", "parameters": {"url": "https://www.youtube.com/results?search_query=" + quote(q)}}], f"YouTube pe {q} dhoondh rahi hoon.", f"यूट्यूब पर {q} ढूँढ रही हूँ।")
+
+LAST_ALARM = None  # (time_marker, day_marker) — "wednesday ko bola tha" jaisa sudhaar
+_DAYN = ["Somvar", "Mangalvar", "Budhvar", "Guruvar", "Shukravar", "Shanivar", "Ravivar"]
+_DAYK = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
+def _has_day(x): return bool(re.search(r"\b(" + "|".join(WD_KEYS) + r"|kal|parso|aaj|udya)\b", x))
+def make_alarm(tm, dm, now):
+    global LAST_ALARM
+    if tm.startswith("@t"): tm = resolve(tm, now); dm = None
+    LAST_ALARM = (tm, dm)
+    if tm.endswith("?"):
+        h, mi = map(int, tm[:-1].split(":"))
+        if dm:  # alag din pe subah/shaam pata nahi -> pucho
+            dn = _DAYN[datetime.date.fromisoformat(resolve(dm, now)).weekday()]
+            return ask(f"{dn} {h} baje subah ya shaam?", f"{dn} {h} बजे सुबह या शाम?", ("alarm_ap", (tm, dm)))
+        else: H = int(resolve(tm, now).split(":")[0])
+        tm = f"{H:02d}:{mi:02d}"
+    H, mi = map(int, tm.split(":"))
+    d = datetime.date.fromisoformat(resolve(dm, now)) if dm else None
+    tgt = datetime.datetime.combine(d, datetime.time(H, mi)) if d else None
+    h12 = H % 12 or 12; part = "subah" if H < 12 else ("dopahar" if H < 16 else ("shaam" if H < 20 else "raat"))
+    when = f"{h12}:{mi:02d} {part}" if mi else f"{h12} baje {part}"
+    if not tgt or datetime.timedelta(0) < tgt - now <= datetime.timedelta(hours=24):
+        dn = "" if not tgt else ("aaj " if tgt.date() == now.date() else "kal ")
+        return R_([{"tool": "set_alarm", "parameters": {"time": tm}}], f"Done! {dn}{when} ka alarm laga diya.", f"हो गया! {dn}{when} का अलार्म लगा दिया।")
+    if tgt <= now: return R_([], "Ye time nikal chuka hai, alarm nahi lagaya.")
+    wd = tgt.weekday()
+    return R_([{"tool": "set_alarm", "parameters": {"time": tm, "day": _DAYK[wd], "date": tgt.strftime("%Y-%m-%d")}}],
+              f"Done! {_DAYN[wd]} ({tgt.day} {tgt.strftime('%b')}) {when} ka alarm laga diya. Phone ka alarm har {_DAYN[wd]} bajega, baad mein band karna ho to bolna.",
+              f"हो गया! {_DAYN[wd]} {when} का अलार्म लगा दिया।")
+def alarm_rule(text, now):
+    x = pre(text).lower()
+    if re.search(r"\b(alarm|alaram|uthana|utha dena|jaga dena|jagana)\b", x):
+        if re.search(r"\b(band|cancel|hatao|delete|off|roj|roz|rooz|rojana|daily|har din|everyday|weekdays?|weekend)\b", x): return None
+        tm = norm_time(x)
+        if not tm: return None
+        if tm.endswith("?") and re.search(r"\b(uthana|utha dena|utha|jaga dena|jagana|jaga)\b", x): tm = tm[:-1]  # uthana = subah
+        return make_alarm(tm, norm_date(x) if _has_day(x) else None, now)
+    global LAST_ALARM
+    if LAST_ALARM and len(x.split()) <= 6 and re.search(r"\b(bola tha|bola|boli thi|kaha tha|nahi|galat|matlab|not|instead|change|badal)\b", x):
+        tm = norm_time(x); dm = norm_date(x) if _has_day(x) else None
+        if not tm and not dm: return None
+        r = make_alarm(tm or LAST_ALARM[0], dm or LAST_ALARM[1], now)
+        r["reply"] = "Sorry! Theek kar diya. " + r["reply"]; return r
+    LAST_ALARM = None
+    return None
+
 def run(text, now=None, force=None):
     global PENDING
     if not force and not PENDING:
         _y = yt_rule(text)
         if _y: return _y
+        _a = alarm_rule(text, now or datetime.datetime.now())
+        if _a: return _a
     if not force and not PENDING:
         name, t2 = plat_split(text)
         if name == "AGENT": return {"actions": [{"tool": "agent_task", "parameters": {"goal": text.strip()}}], "confirmationRequired": False, "reply": "Ruko, kar rahi hoon.", "speech": "रुको, कर रही हूँ।"}
@@ -176,6 +225,15 @@ def run(text, now=None, force=None):
             if r0 and r0["actions"] and r0["actions"][0]["tool"] not in ("fallback_llm", "ask_user", "send_sms", "agent_task", "open_app", "play_music", "make_call"): return r0
             PENDING = None
             return {"actions": [{"tool": "send_sms", "parameters": {"contact_name": d, "message": ans}}], "confirmationRequired": True, "reply": f"{d} ko message bhej rahi hoon: {ans}", "speech": f"{d} को मैसेज भेज रही हूँ।"}
+        if kind == "alarm_ap":
+            tm, dm = d; h, mi = map(int, tm[:-1].split(":")); a = pre(ans).lower()
+            if len(a.split()) > 3 or re.search(r"\d", a): return run(text, now)  # naya command
+            if re.search(r"\b(shaam|sham|pm|evening|raat|night|dopahar|afternoon)\b", a): h = 12 if h == 12 else h + 12
+            elif not re.search(r"\b(subah|savere|am|morning|sakali)\b", a):
+                r0 = run(text, now)
+                if r0 and r0["actions"] and r0["actions"][0]["tool"] != "fallback_llm": return r0
+                h = h % 12
+            return make_alarm(f"{h:02d}:{mi:02d}", dm, now)
         if kind == "sms_to": return ask(f"{ans.title()} ko kya message bhejun?", f"{ans.title()} को क्या मैसेज भेजूँ?", ("sms", ans.title()))
         if kind == "call": return {"actions": [{"tool": "make_call", "parameters": {"contact_name": ans.title()}}], "confirmationRequired": True, "reply": f"{ans.title()} ko call laga rahi hoon.", "speech": f"{ans.title()} को कॉल लगा रही हूँ।"}
     x = WAKE.sub("", pre(WAKE.sub("", text.strip()))).strip()

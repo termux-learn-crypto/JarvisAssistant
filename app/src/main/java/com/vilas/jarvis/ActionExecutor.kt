@@ -134,7 +134,10 @@ class ActionExecutor(private val activity: Activity) {
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
         val label = p.optString("label")
         if (label.isNotBlank()) i.putExtra(AlarmClock.EXTRA_MESSAGE, label)
-        val days: ArrayList<Int>? = when (p.optString("repeat", "once")) {
+        val dayMap = mapOf("SUNDAY" to Calendar.SUNDAY, "MONDAY" to Calendar.MONDAY, "TUESDAY" to Calendar.TUESDAY,
+            "WEDNESDAY" to Calendar.WEDNESDAY, "THURSDAY" to Calendar.THURSDAY, "FRIDAY" to Calendar.FRIDAY, "SATURDAY" to Calendar.SATURDAY)
+        val oneDay = dayMap[p.optString("day").uppercase()]
+        val days: ArrayList<Int>? = if (oneDay != null) arrayListOf(oneDay) else when (p.optString("repeat", "once")) {
             "daily" -> arrayListOf(
                 Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
                 Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY
@@ -146,7 +149,7 @@ class ActionExecutor(private val activity: Activity) {
             else -> null
         }
         if (days != null) i.putIntegerArrayListExtra(AlarmClock.EXTRA_DAYS, days)
-        return if (start(i)) "Alarm $time set." else "Clock app nahi mila."
+        return if (start(i)) "Alarm $time set" + (if (oneDay != null) " (${p.optString("day").lowercase()})." else ".") else "Clock app nahi mila."
     }
 
     private fun createReminder(p: JSONObject): String {
