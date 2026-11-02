@@ -153,7 +153,11 @@ class MairaAccessibilityService : AccessibilityService() {
         val done = HashSet<String>()
         repeat(6) { pass ->
             val nodes = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
-            val sw = nodes.filter { it.isCheckable && it.isChecked && it.isVisibleToUser }
+            val sw = nodes.filter {
+                val c = it.className?.toString() ?: ""
+                it.isCheckable && it.isChecked && it.isVisibleToUser &&
+                    (c.contains("Switch") || c.contains("Toggle") || c.contains("CompoundButton") || c.contains("CheckBox"))
+            }
             for (s in sw) {
                 var row: AccessibilityNodeInfo? = s.parent; var txt = ""
                 var up = 0
@@ -162,11 +166,17 @@ class MairaAccessibilityService : AccessibilityService() {
                     if (Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) break
                     row = row.parent; up++
                 }
+                if (!Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
                 val key = txt.take(60); if (!done.add(key)) continue
-                val ok = try { onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) { false }
-                if (ok) count++
-                Thread.sleep(400)
+                if (s.isClickable) try { onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
+                Thread.sleep(500)
+                s.refresh()
+                if (s.isChecked) { // click nahi laga to switch pe asli tap
+                    val r = android.graphics.Rect(); s.getBoundsInScreen(r)
+                    tap(r.exactCenterX(), r.exactCenterY(), 60L); Thread.sleep(600); s.refresh()
+                }
+                if (!s.isChecked) count++
             }
             if (!all && count > 0) return count
             val sc = nodes.firstOrNull { it.isScrollable }
