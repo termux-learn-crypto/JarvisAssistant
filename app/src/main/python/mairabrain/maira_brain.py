@@ -155,7 +155,8 @@ def make_alarm(tm, dm, now):
         h, mi = map(int, tm[:-1].split(":"))
         if dm:  # alag din pe subah/shaam pata nahi -> pucho
             dn = _DAYN[datetime.date.fromisoformat(resolve(dm, now)).weekday()]
-            return ask(f"{dn} {h} baje subah ya shaam?", f"{dn} {h} बजे सुबह या शाम?", ("alarm_ap", (tm, dm)))
+            hm = f"{h}:{mi:02d}" if mi else f"{h} baje"
+            return ask(f"{dn} {hm} subah ya shaam?", f"{dn} {hm} सुबह या शाम?", ("alarm_ap", (tm, dm)))
         else: H = int(resolve(tm, now).split(":")[0])
         tm = f"{H:02d}:{mi:02d}"
     H, mi = map(int, tm.split(":"))
@@ -285,7 +286,14 @@ def run(text, now=None, force=None):
             k, _, v = kv.partition("=")
             if t == "set_alarm" and k == "time" and v.endswith("?") and 3 <= int(v[:2]) <= 8: v = v[:-1]  # alarm 3-8 baje = subah
             if t != "set_alarm" and k in ("time", "start_time") and v.endswith("?") and 1 <= int(v[:2]) <= 7 and not re.search(r"@d\+0", ps): v = f"{int(v[:2])+12:02d}{v[2:-1]}"  # aage ke din meeting 1-7 baje = dopahar/shaam
-            v = resolve(v, now) if k in ("time", "date") else v
+            if t != "set_alarm" and k in ("time", "start_time") and v.endswith("?") and not re.search(r"@d\+0", ps) and re.search(r"date=@", ps): v = v[:-1] if int(v[:2]) >= 8 else v  # aage ke din 8-11 = subah
+            v = resolve(v, now) if k in ("time", "date", "start_time") else v
+            if t == "create_reminder" and k == "text" and v:
+                i = x.lower().find(v.lower())
+                if i >= 0:
+                    tail = re.sub(r"\s*\b(yaad dila\w*|yaad karana|remind\w*|reminder|na|please|plz|ye|ki)\s*$", "", x[i:].strip(), flags=re.I)
+                    tail = re.sub(r"\s*\b(yaad dila\w*|reminder)\s*$", "", tail, flags=re.I)
+                    if 0 < len(tail.split()) <= 10 and not re.search(r"\d+\s*baje", tail): v = tail
             p[k] = int(v) if k in ("level", "number", "count") and v.isdigit() else v
         acts.append({"tool": t, "parameters": p})
     if force in (None, "fallback_llm|0||") and acts and acts[0]["tool"] == "fallback_llm":  # chat me jaane se pehle keyword se command bachao
@@ -297,6 +305,17 @@ def run(text, now=None, force=None):
             pn = next((n for n, rx in PLAT if re.search(rf"\b(?:{rx})\b", xl)), None)
             if pn and re.search(r"kya aaya|kya aya|kisne|message aaye|msg aaye|padho|padh ke|naye message|notification", xl): acts = [{"tool": "read_notifications", "parameters": {"app_name": pn}}]; reply = "Ruko, dekhti hoon kya aaya hai."; speech = "रुको, देखती हूँ क्या आया है।"
             elif re.fullmatch(r"(ruko|ruk|roko|stop|thamb|thamba|pause|bas)( karo| kar| ja| jao)?", xl): acts = [{"tool": "media_control", "parameters": {"action": "pause"}}]; reply = "Rok diya."; speech = "रोक दिया।"
+            elif re.search(r"yaad dila|\bremind", xl) and norm_time(xl):
+                tm = norm_time(xl); dm = norm_date(xl)
+                if tm.endswith("?") and dm != "@d+0": tm = tm[:-1] if int(tm[:2]) >= 8 else f"{int(tm[:2]) % 12 + 12:02d}{tm[2:-1]}"
+                m_ = re.search(r"(?:yaad dila\w*|remind\w*(?: me)?)\s+(?:ki |ke |ke liye |to |about )?(.+)$", x.strip(), re.I)
+                txt = m_.group(1).strip() if m_ else "Reminder"
+                if re.search(r"\d", txt) or len(txt.split()) > 10: txt = "Reminder"
+                acts = [{"tool": "create_reminder", "parameters": {"text": txt, "date": resolve(dm, now), "time": resolve(tm, now)}}]; reply = "Done, yaad dila dungi."; speech = "ठीक है, याद दिला दूँगी।"
+            elif re.search(r"\b(meeting|calendar)\b", xl) and norm_time(xl):
+                tm = norm_time(xl); dm = norm_date(xl)
+                if tm.endswith("?") and dm != "@d+0": tm = tm[:-1] if int(tm[:2]) >= 8 else f"{int(tm[:2]) % 12 + 12:02d}{tm[2:-1]}"
+                acts = [{"tool": "create_calendar_event", "parameters": {"title": "Meeting", "date": resolve(dm, now), "start_time": resolve(tm, now)}}]; reply = "Calendar mein daal diya."; speech = "कैलेंडर में डाल दिया।"
             elif re.search(r"\bsilent\b|\bmute\b", xl): acts = [{"tool": "set_volume", "parameters": {"level": 0}}]; reply = "Phone silent kar diya."; speech = "फ़ोन साइलेंट कर दिया।"
             elif re.search(r"\b(gaana|gaane|gana|song|songs|music)\b", xl) and re.search(r"chala|laga|baja|play|suna|lav", xl): acts = [{"tool": "play_music", "parameters": {}}]; reply = "Chalo, laga rahi hoon!"; speech = "चलो, लगा रही हूँ!"
     if not force:
