@@ -51,7 +51,7 @@ class ActionExecutor(private val activity: Activity) {
             "media_control" -> mediaControl(a.params.optString("action"))
             "mouse", "gesture", "labels", "keyboard" -> control(a)
             "ask_user" -> a.params.optString("question")
-            else -> "Ye action samajh nahi aaya: ${a.tool}"
+            else -> ExtraActions.run(ctx, a) ?: "Ye action samajh nahi aaya: ${a.tool}"
         }
     } catch (e: Exception) {
         "${a.tool} fail hua: ${e.message}"

@@ -49,10 +49,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         executor = ActionExecutor(this)
         buildUi()
-        tts = TextToSpeech(this, this)
+        // Chat-only: abhi voice (TTS/mic/wake word) band hai
+        MairaPy.warmup(this)
         askPermissions()
-        log("Maira", "Hey Vilas! Main Maira. Mic dabao aur bindaas bolo.")
-        QuickMic.refreshNotification(this)
+        log("Maira", "Hey Vilas! Main Maira, ab mera apna dimaag hai. Command ya koi bhi sawal likho.")
     }
 
     override fun onDestroy() {
@@ -109,7 +109,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) }
         }
         input = EditText(this).apply {
-            hint = "Command likho…"
+            hint = "Command ya sawal likho…"
             setHintTextColor(Color.GRAY)
             setTextColor(Color.WHITE)
             imeOptions = EditorInfo.IME_ACTION_SEND
@@ -134,7 +134,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(header)
         root.addView(scroll)
         root.addView(inputRow)
-        root.addView(mic)
         setContentView(root)
     }
 
@@ -164,9 +163,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        if (prefs.getBoolean("wake", false) && WakeService.instance == null && WakeModel.ready(this)) {
-            try { WakeService.start(this) } catch (_: Exception) {}
-        }
     }
 
     private fun pickModelFile() {

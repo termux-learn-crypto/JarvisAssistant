@@ -54,7 +54,7 @@ object Brain {
     } catch (_: Exception) { true }
 
     /** Gemini use kar sakte hain? (key + internet dono) */
-    fun smart(ctx: Context) = apiKey(ctx).isNotBlank() && online(ctx)
+    fun smart(ctx: Context) = false  // Gemini band: sirf Maira ka apna brain
     fun model(ctx: Context) = (prefs(ctx).getString("model", "") ?: "").ifBlank { DEFAULT_MODEL }
 
     private var template: String? = null
@@ -84,45 +84,8 @@ object Brain {
     fun plan(ctx: Context, command: String): Plan {
         // "agent ..." bola to seedha agent
         if (Agent.forced(command)) return agentPlan(ctx, Agent.stripForce(command))
-        // Pehle offline dimaag (tez, free).
-        val local = LocalBrain.parse(ctx, command)
-        // Kai step wala kaam jise offline parser poora nahi samjha (sirf app khola) -> agent / Gemini
-        val partial = local == null || local.actions.isEmpty() ||
-            local.actions.all { it.tool == "open_app" || it.tool == "screen_action" }
-        if (Agent.looksMultiStep(command) && partial) {
-            if (!smart(ctx) && LocalLlm.ready(ctx)) return agentPlan(ctx, command)
-            if (!smart(ctx) && local != null) return local
-        } else if (local != null) return local
-        if (!smart(ctx) && LocalLlm.ready(ctx)) {
-            return try {
-                val (cmd, ans) = LocalLlm.route(ctx, command, historyText())
-                if (cmd != null && cmd.startsWith("AGENT:")) return agentPlan(ctx, cmd.removePrefix("AGENT:").trim().ifBlank { command })
-                cmd?.let { c -> LocalBrain.parse(ctx, c)?.let { return it } }
-                val reply = ans.ifBlank { if (lang(ctx).mode == "English") "Sorry, I didn't get that." else "Sorry yaar, ye samajh nahi aaya." }
-                Plan(emptyList(), false, reply, reply)
-            } catch (e: Throwable) {
-                Plan(emptyList(), false, "Offline AI chal nahi paya: ${e.message}", "ऑफलाइन दिमाग अभी चल नहीं पाया।")
-            }
-        }
-        if (!smart(ctx)) {
-            val en = lang(ctx).mode == "English"
-            val noNet = apiKey(ctx).isNotBlank()
-            val r = when {
-                en && noNet -> "No internet, and I couldn't get that offline. Try a simpler command."
-                en -> "Sorry, I didn't get that offline. Add a free Gemini key in settings for smart mode."
-                noNet -> "Abhi internet nahi hai aur ye offline samajh nahi aaya. Thoda simple bolo, jaise \"YouTube kholo\"."
-                else -> "Ye offline samajh nahi aaya. Settings mein \"Offline AI dimaag\" download karo, phir ye bhi samajh jaungi."
-            }
-            val sp = when {
-                en -> r
-                noNet -> "अभी इंटरनेट नहीं है और ये ऑफलाइन समझ नहीं आया। थोड़ा सिंपल बोलो।"
-                else -> "ये मुझे ऑफलाइन समझ नहीं आया। सेटिंग्स में ऑफलाइन दिमाग डाउनलोड करो, फिर ये भी समझ जाऊंगी।"
-            }
-            return Plan(emptyList(), false, r, sp)
-        }
-        val h = historyText()
-        val msg = "Voice mode: ${lang(ctx).mode}\n" + (if (h.isNotBlank()) "Recent conversation (for context only):\n$h\n" else "") + "Command: $command"
-        return Plan.parse(GeminiClient(apiKey(ctx), model(ctx)).generate(systemPrompt(ctx), msg))
+        // Maira ka apna brain (zero se trained, phone pe). Koi Gemini/Qwen nahi.
+        return MairaPy.plan(ctx, command)
     }
 
     fun agentPlan(ctx: Context, goal: String): Plan {
@@ -190,10 +153,10 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
             }
             val status: String = when (a.tool) {
                 "agent_task" -> {
-                    if (!hidden && !appOpened) { act.runOnUiThread { hideSelf() }; hidden = true; sleep(700) }
-                    val r = Agent.run(act, executor, a.params.optString("goal"), log)
-                    log("Maira", r); extra.append(" ").append(r)
-                    "Agent ne kaam khatam kiya."
+                    // Step-by-step screen agent abhi Maira ke apne brain mein nahi hai (purana agent Gemini/Qwen pe tha).
+                    val r = "Ye lamba kaam (\"${a.params.optString("goal")}\") abhi main khud step-by-step nahi kar sakti. Jald seekh jaungi."
+                    log("Maira", r)
+                    "Agent abhi band hai."
                 }
                 "read_screen" -> readScreen(act, a.params.optString("question"), extra, log)
                 "read_notifications" -> readNotifs(act, a.params.optString("app_name"), a.params.optString("question"), extra, log)
@@ -216,7 +179,7 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
         if (Safety.isBlocked(pkg)) return "Ye app safety ke liye main nahi padhti."
         val text = svc.screenText()
         if (text.isBlank()) return "Screen pe padhne layak text nahi mila."
-        if (!smart(ctx) && LocalLlm.ready(ctx)) {
+        if (false) {  // Qwen band
             try {
                 val r = LocalLlm.read(ctx, "screen of $pkg", q, text)
                 log("Maira", r); extra.append(" ").append(r)
@@ -242,7 +205,7 @@ Output sirf JSON: {"reply": "...", "speech": "..."}"""
             return "Messages padhne ke liye Settings > Accessibility mein Maira on karo."
         val list = MairaAccessibilityService.recentNotifications(app)
         if (list.isEmpty()) return "Abhi koi naya message/notification nahi mila (Maira on hone ke baad wale hi dikhte hain)."
-        if (!smart(ctx) && LocalLlm.ready(ctx)) {
+        if (false) {  // Qwen band
             try {
                 val r = LocalLlm.read(ctx, "recent notifications and messages, newest first", q, list.joinToString("\n"))
                 log("Maira", r); extra.append(" ").append(r)

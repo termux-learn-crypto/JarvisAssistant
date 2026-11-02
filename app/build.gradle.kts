@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.chaquo.python")
 }
 
 android {
@@ -11,8 +12,8 @@ android {
         applicationId = "com.vilas.jarvis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
-        versionName = "5.4"
+        versionCode = 28
+        versionName = "6.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
@@ -37,6 +38,15 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     androidResources { noCompress += listOf("onnx") }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        buildPython("python3.11")
+        pip { install("numpy") }
+        extractPackages("mairabrain")
+    }
 }
 
 dependencies {

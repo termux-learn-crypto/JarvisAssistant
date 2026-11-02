@@ -19,6 +19,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -39,7 +43,7 @@ jobs:
         with:
           tag_name: latest
           name: Maira latest build
-          body: "Phone pe Maira.apk download karke install karo."
+          body: "Maira v6.0: apna brain (zero se trained), chat-only. Phone pe Maira.apk download karke install karo."
           prerelease: false
           make_latest: true
           files: Maira.apk
