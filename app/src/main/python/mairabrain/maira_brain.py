@@ -209,7 +209,8 @@ def cancel_alarm_rule(x, now):
     if tm and not tm.startswith("@"):
         h, mi = int(tm[:2]), int(tm[3:5]); lab = f"{h % 12 or 12}:{mi:02d}" if mi else f"{h % 12 or 12} baje"
         return R_([{"tool": "cancel_alarm", "parameters": {"time": tm}}], f"{lab} wala alarm band kar rahi hoon.", "अलार्म बंद कर रही हूँ।")
-    return R_([{"tool": "cancel_alarm", "parameters": {}}], "Alarm ki list khol di, jo band karna hai wo chuno.", "अलार्म की लिस्ट खोल दी।")
+    part = "shaam" if re.search(r"\b(shaam|sham|pm|evening|raat|night|dopahar)\b", x) else ("subah" if re.search(r"\b(subah|savere|am|morning|sakali)\b", x) else "")
+    return ask("Kitne baje wala alarm band karun?", "कितने बजे वाला अलार्म बंद करूँ?", ("cancel_al", part))
 def alarm_rule(text, now):
     x = pre(text).lower()
     _c = cancel_alarm_rule(x, now)
@@ -273,6 +274,16 @@ def run(text, now=None, force=None):
             pm_ = re.search(r"\b(shaam|sham|pm|evening|raat|night|dopahar|afternoon)\b", a); am_ = re.search(r"\b(subah|savere|am|morning|sakali)\b", a)
             if not (pm_ or am_): return run(text, now)
             return build_multi(toks, dm, "shaam" if pm_ else "subah", now)
+        if kind == "cancel_al":
+            a = pre(ans).lower(); tm = norm_time(a)
+            if not tm or tm.startswith("@"):
+                if re.search(r"\b(sab|sabhi|saare|sare|all)\b", a): return cancel_alarm_rule("sab alarm band", now)
+                return run(text, now)
+            if re.search(r"\b(shaam|sham|pm|evening|raat|night|dopahar)\b", a): d = "shaam"
+            elif re.search(r"\b(subah|savere|am|morning|sakali)\b", a): d = "subah"
+            if tm.endswith("?") and d:
+                h, mi = map(int, tm[:-1].split(":")); h = h % 12 + (12 if d == "shaam" else 0); tm = f"{h:02d}:{mi:02d}"
+            return cancel_alarm_rule(f"{tm} ka alarm band", now) if False else R_([{"tool": "cancel_alarm", "parameters": {"time": tm}}], f"{tm.rstrip('?')} wala alarm band kar rahi hoon.", "अलार्म बंद कर रही हूँ।")
         if kind == "alarm_ap":
             tm, dm = d; h, mi = map(int, tm[:-1].split(":")); a = pre(ans).lower()
             if len(a.split()) > 3 or re.search(r"\d", a): return run(text, now)  # naya command

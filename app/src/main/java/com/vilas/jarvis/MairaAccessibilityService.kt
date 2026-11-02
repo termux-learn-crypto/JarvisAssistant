@@ -143,6 +143,63 @@ class MairaAccessibilityService : AccessibilityService() {
         return rootInActiveWindow
     }
 
+
+    /** Clock app ki alarm list khol ke matching alarm ka switch khud OFF karta hai (bina touch). */
+    fun clockAlarmsOff(h24: Int?, m: Int?, pmKnown: Boolean, all: Boolean): Int {
+        val i = android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        try { startActivity(i) } catch (_: Exception) { return -1 }
+        Thread.sleep(1800)
+        var count = 0
+        val done = HashSet<String>()
+        repeat(6) { pass ->
+            val nodes = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
+            val sw = nodes.filter { it.isCheckable && it.isChecked && it.isVisibleToUser }
+            for (s in sw) {
+                var row: AccessibilityNodeInfo? = s.parent; var txt = ""
+                var up = 0
+                while (row != null && up < 4) {
+                    txt = rowText(row)
+                    if (Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) break
+                    row = row.parent; up++
+                }
+                if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
+                val key = txt.take(60); if (!done.add(key)) continue
+                val ok = try { onMain { s.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) { false }
+                if (ok) count++
+                Thread.sleep(400)
+            }
+            if (!all && count > 0) return count
+            val sc = nodes.firstOrNull { it.isScrollable }
+            if (sc == null || !(try { onMain { sc.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) } } catch (_: Exception) { false })) return count
+            Thread.sleep(700)
+        }
+        return count
+    }
+
+    private fun rowText(n: AccessibilityNodeInfo): String {
+        val sb = StringBuilder(); val st = ArrayDeque<AccessibilityNodeInfo>(); st.add(n); var k = 0
+        while (st.isNotEmpty() && k < 60) { val x = st.removeLast(); k++; sb.append(label(x)).append(' ')
+            for (j in 0 until x.childCount) x.getChild(j)?.let { st.add(it) } }
+        return sb.toString()
+    }
+
+    private fun matchTime(raw: String, h24: Int, m: Int, pmKnown: Boolean): Boolean {
+        if (h24 < 0) return false
+        val t = raw.lowercase(Locale.ROOT).replace('.', ':')
+        val mm = String.format(Locale.ROOT, "%02d", m)
+        val h12 = (h24 % 12).let { if (it == 0) 12 else it }
+        val isPm = h24 >= 12
+        val hasAp = Regex("\\b(am|pm|a\\.m|p\\.m)\\b|पूर्वाह्न|अपराह्न|सुबह|शाम|रात").containsMatchIn(t)
+        if (!hasAp) { // 24 ghante wala clock
+            val cands = if (pmKnown) listOf(h24) else listOf(h24 % 12, h24 % 12 + 12)
+            return cands.any { Regex("(^|\\D)0?$it:$mm(\\D|$)").containsMatchIn(t) }
+        }
+        if (!Regex("(^|\\D)0?$h12:$mm(\\D|$)").containsMatchIn(t)) return false
+        if (!pmKnown) return true
+        val pm = Regex("\\bpm\\b|p\\.m|अपराह्न|शाम|रात").containsMatchIn(t)
+        return pm == isPm
+    }
+
     fun currentPackage(): String = root()?.packageName?.toString() ?: ""
 
     private fun allNodes(): List<AccessibilityNodeInfo> {

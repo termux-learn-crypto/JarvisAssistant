@@ -58,6 +58,20 @@ object ExtraActions {
                 svc.global(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT, "Screenshot le liya.")
             }
             "cancel_alarm" -> {
+                val svc = MairaAccessibilityService.instance
+                if (svc != null) {
+                    val all = p.optString("all") == "true"
+                    val tt = p.optString("time")
+                    val amb = tt.endsWith("?")
+                    val hm = tt.trimEnd('?').split(":")
+                    val hh = hm.getOrNull(0)?.toIntOrNull(); val mn = hm.getOrNull(1)?.toIntOrNull() ?: 0
+                    if (all || hh != null) {
+                        val n = svc.clockAlarmsOff(hh, mn, !amb, all)
+                        try { ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
+                        if (n > 0) return if (all) "$n alarm Clock me band kar diye." else "Clock me alarm band kar diya."
+                        if (n == 0) return if (all) "Koi chalu alarm nahi mila." else "Clock me ${tt.trimEnd('?')} ka chalu alarm nahi mila."
+                    }
+                }
                 val i = Intent(AlarmClock.ACTION_DISMISS_ALARM)
                 val t = p.optString("time")
                 if (p.optString("all") == "true") {
