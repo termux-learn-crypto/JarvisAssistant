@@ -196,13 +196,17 @@ class MairaAccessibilityService : AccessibilityService() {
     private fun handlePopup() {
         repeat(2) {
             val ns = try { onMain { allNodes() } } catch (_: Exception) { return }
-            val btns = ns.filter { it.isVisibleToUser && it.isClickable && label(it).isNotBlank() && !it.isCheckable }
-            val good = Regex("(?i)turn\\s*off|band|बंद|disable|close alarm|stop|^off$|^ok$|confirm|haan|yes|delete only|बंद करें")
-            val bad = Regex("(?i)skip|once|cancel|ek baar|sirf|edit|delete|रद्द|undo")
-            val b = btns.firstOrNull { val t = label(it).trim(); good.containsMatchIn(t) && !bad.containsMatchIn(t) && t.length < 30 }
-            if (dbgRows.length < 600) dbgRows.append("popup?[").append(btns.take(6).joinToString("|") { label(it).take(15) }).append("] ")
+            val btns = ns.filter { it.isVisibleToUser && label(it).isNotBlank() && !it.isCheckable && label(it).length < 60 }
+            val good = Regex("(?i)repeating|turn\\s*off|band|बंद|disable|close alarm|^off$|^ok$|confirm")
+            val bad = Regex("(?i)skip|once|only|tomorrow|cancel|ek baar|sirf|edit|delete|रद्द|undo|एक बार|कल")
+            val b = btns.firstOrNull { val t = label(it).trim(); Regex("(?i)repeating|दोहराने|रिपीट").containsMatchIn(t) && !bad.containsMatchIn(t) }
+                ?: btns.firstOrNull { val t = label(it).trim(); good.containsMatchIn(t) && !bad.containsMatchIn(t) && !Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(t) }
+            if (dbgRows.length < 600) dbgRows.append("popup?[").append(btns.filter { !Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(label(it)) }.take(6).joinToString("|") { label(it).take(20) }).append("] ")
             if (b == null) return
-            try { onMain { b.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) {}
+            var c: AccessibilityNodeInfo? = b; var d = 0
+            while (c != null && !c.isClickable && d < 4) { c = c.parent; d++ }
+            val ok = c != null && c.isClickable && (try { onMain { c.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) { false })
+            if (!ok) { val r = android.graphics.Rect(); b.getBoundsInScreen(r); tap(r.exactCenterX(), r.exactCenterY(), 60L) }
             dbgRows.append("clicked:").append(label(b).take(15)).append(" ; ")
             Thread.sleep(700)
         }
