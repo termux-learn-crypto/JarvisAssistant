@@ -57,6 +57,22 @@ object ExtraActions {
                 if (Build.VERSION.SDK_INT < 28) return "Is Android version pe screenshot nahi le sakti."
                 svc.global(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT, "Screenshot le liya.")
             }
+            "cancel_alarm" -> {
+                val i = Intent(AlarmClock.ACTION_DISMISS_ALARM)
+                val t = p.optString("time")
+                if (p.optString("all") == "true") {
+                    i.putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_ALL)
+                } else if (t.isNotBlank()) {
+                    val amb = t.endsWith("?")
+                    val hm = t.trimEnd('?').split(":")
+                    val h = hm[0].toInt(); val m = hm.getOrElse(1) { "0" }.toInt()
+                    i.putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE, AlarmClock.ALARM_SEARCH_MODE_TIME)
+                    i.putExtra(AlarmClock.EXTRA_HOUR, (h % 12).let { if (it == 0) 12 else it })
+                    i.putExtra(AlarmClock.EXTRA_MINUTES, m)
+                    if (!amb) i.putExtra(AlarmClock.EXTRA_IS_PM, h >= 12)
+                }
+                if (start(ctx, i)) "Alarm band karne ke liye Clock ko bhej diya." else "Clock app alarm band nahi kar payi."
+            }
             "take_photo" -> if (start(ctx, Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))) "Camera khol diya." else "Camera nahi khula."
             "toggle_dnd" -> {
                 val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

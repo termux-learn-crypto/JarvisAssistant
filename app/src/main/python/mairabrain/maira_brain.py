@@ -191,8 +191,29 @@ def build_multi(toks, dm, part, now):
         if r["actions"] and r["actions"][0]["tool"] == "set_alarm": acts.append(r["actions"][0]); names.append(r["actions"][0]["parameters"]["time"])
     if not acts: return R_([], "Ye time nikal chuka hai, alarm nahi lagaya.")
     return R_(acts, f"Done! {len(acts)} alarm laga diye: " + ", ".join(names) + ".", f"{len(acts)} अलार्म लगा दिए।")
+
+def cancel_alarm_rule(x, now):
+    global LAST_ALARM
+    al = re.search(r"\b(alarm|alaram)\b", x); off = re.search(r"\b(band|bandh|cancel|hatao|hata do|delete|off|mat bajana|nako|remove)\b", x)
+    if not off: return None
+    if not al:  # "band kar do" turant alarm lagane ke baad
+        if LAST_ALARM and len(x.split()) <= 4 and not re.search(r"\b(wifi|bluetooth|torch|flash|gaana|song|music|video|youtube|data|net|hotspot|location|app|screen|phone)\b", x):
+            tm, dm = LAST_ALARM; LAST_ALARM = None
+            if tm.endswith("?"): tm = resolve(tm, now)
+            return R_([{"tool": "cancel_alarm", "parameters": {"time": tm}}], f"Theek hai, {tm} wala alarm band kar diya.", "ठीक है, अलार्म बंद कर दिया।")
+        return None
+    LAST_ALARM = None
+    if re.search(r"\b(sab|sabhi|saare|sare|all|sagle)\b", x):
+        return R_([{"tool": "cancel_alarm", "parameters": {"all": "true"}}], "Saare alarm band kar diye.", "सारे अलार्म बंद कर दिए।", conf=True)
+    tm = norm_time(x)
+    if tm and not tm.startswith("@"):
+        h, mi = int(tm[:2]), int(tm[3:5]); lab = f"{h % 12 or 12}:{mi:02d}" if mi else f"{h % 12 or 12} baje"
+        return R_([{"tool": "cancel_alarm", "parameters": {"time": tm}}], f"{lab} wala alarm band kar rahi hoon.", "अलार्म बंद कर रही हूँ।")
+    return R_([{"tool": "cancel_alarm", "parameters": {}}], "Alarm ki list khol di, jo band karna hai wo chuno.", "अलार्म की लिस्ट खोल दी।")
 def alarm_rule(text, now):
     x = pre(text).lower()
+    _c = cancel_alarm_rule(x, now)
+    if _c: return _c
     if re.search(r"\b(alarm|alaram|uthana|utha dena|jaga dena|jagana)\b", x):
         if re.search(r"\b(band|cancel|hatao|delete|off|roj|roz|rooz|rojana|daily|har din|everyday|weekdays?|weekend)\b", x): return None
         _m = multi_alarm(x, now)
