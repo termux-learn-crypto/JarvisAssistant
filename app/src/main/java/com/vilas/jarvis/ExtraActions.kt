@@ -69,7 +69,7 @@ object ExtraActions {
                         val n = svc.clockAlarmsOff(hh, mn, !amb, all)
                         try { ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
                         if (n > 0) return if (all) "$n alarm Clock me band kar diye." else "Clock me alarm band kar diya."
-                        if (n == 0) return (if (all) "Koi chalu alarm nahi mila." else "Clock me ${tt.trimEnd('?')} ka chalu alarm nahi mila.") + " [debug: ${svc.lastDebug}]"
+                        if (n == 0) return (if (all) "Koi chalu alarm nahi mila." else "Clock me ${tt.trimEnd('?')} ka chalu alarm nahi mila.") + " [debug: ${svc.lastDebug} | rows: ${svc.dbgRows}]"
                     }
                 }
                 val i = Intent(AlarmClock.ACTION_DISMISS_ALARM)

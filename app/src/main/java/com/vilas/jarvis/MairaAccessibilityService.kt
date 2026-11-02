@@ -157,14 +157,17 @@ class MairaAccessibilityService : AccessibilityService() {
             if (pass == 0) lastDebug = nodes.filter { it.isCheckable || (it.className?.toString() ?: "").contains("Switch") }
                 .take(8).joinToString("; ") { (it.className?.toString()?.substringAfterLast('.') ?: "?") + "/" + it.isChecked + "/" + stateOf(it) + "/" + label(it).take(15) } +
                 " | pkg=" + (nodes.firstOrNull()?.packageName ?: "?")
+            if (pass == 0) dbgRows.setLength(0)
             for (s in sw) {
-                var row: AccessibilityNodeInfo? = s.parent; var txt = ""
-                var up = 0
-                while (row != null && up < 6) {
-                    txt = rowText(row)
-                    if (Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) break
-                    row = row.parent; up++
-                }
+                // screen pe usi line (same height) ke saare text jodo
+                val sr = android.graphics.Rect(); s.getBoundsInScreen(sr)
+                val band = dpx(55)
+                var txt = nodes.filter {
+                    val r = android.graphics.Rect(); it.getBoundsInScreen(r)
+                    kotlin.math.abs(r.exactCenterY() - sr.exactCenterY()) < band && label(it).isNotBlank()
+                }.joinToString(" ") { label(it) }
+                txt = txt.replace(Regex("(\\d{1,2})\\s+(\\d{2})\\b"), "$1:$2")
+                if (pass == 0 && dbgRows.length < 300) dbgRows.append(txt.take(40)).append(" ; ")
                 if (!Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
                 val key = txt.take(60); if (!done.add(key)) continue
@@ -186,6 +189,7 @@ class MairaAccessibilityService : AccessibilityService() {
     }
 
     @Volatile var lastDebug = ""
+    val dbgRows = StringBuilder()
     private fun stateOf(n: AccessibilityNodeInfo): String =
         if (Build.VERSION.SDK_INT >= 30) (n.stateDescription?.toString() ?: "") else ""
     private fun isOn(n: AccessibilityNodeInfo): Boolean {
