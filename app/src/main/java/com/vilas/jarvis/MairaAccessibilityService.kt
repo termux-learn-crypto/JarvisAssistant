@@ -164,13 +164,13 @@ class MairaAccessibilityService : AccessibilityService() {
                 val band = dpx(55)
                 var txt = nodes.filter {
                     val r = android.graphics.Rect(); it.getBoundsInScreen(r)
-                    it != s && !it.isCheckable && kotlin.math.abs(r.exactCenterY() - sr.exactCenterY()) < band && label(it).isNotBlank()
+                    it != s && !it.isCheckable && it.isVisibleToUser && kotlin.math.abs(r.exactCenterY() - sr.exactCenterY()) < band && label(it).isNotBlank()
                 }.joinToString(" ") { label(it) }
                 txt = txt.replace(Regex("(\\d{1,2})\\s+(\\d{2})\\b"), "$1:$2")
                 if (pass == 0 && dbgRows.length < 300) dbgRows.append(txt.take(40)).append(" ; ")
-                if (!Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(txt)) continue  // alarm row hi ho
+                if (!TRX.containsMatchIn(txt)) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
-                val key = Regex("\\d{1,2}[:.]\\d{2}").find(txt)?.value?.replace('.', ':')?.trimStart('0') + "|" + Regex("(?i)\\b(am|pm)\\b").find(txt)?.value?.lowercase()
+                val key = TRX.find(txt)?.value?.replace('.', ':')?.trimStart('0') + "|" + Regex("(?i)\\b(am|pm)\\b").find(txt)?.value?.lowercase()
                 if (!done.add(key)) continue  // ek time ka alarm sirf ek baar
                 // sirf EK baar toggle: dobara tap kabhi nahi (warna wapas ON ho jata hai)
                 var ok = false
@@ -212,6 +212,7 @@ class MairaAccessibilityService : AccessibilityService() {
         }
     }
 
+    private val TRX = Regex("(?<![\\d:/.])\\d{1,2}[:.]\\d{2}(?![\\d:]|\\.\\d)")
     @Volatile var lastDebug = ""
     val dbgRows = StringBuilder()
     private fun stateOf(n: AccessibilityNodeInfo): String =
@@ -247,9 +248,9 @@ class MairaAccessibilityService : AccessibilityService() {
         val hasAp = Regex("\\b(am|pm|a\\.m|p\\.m)\\b|पूर्वाह्न|अपराह्न|सुबह|शाम|रात").containsMatchIn(t)
         if (!hasAp) { // 24 ghante wala clock
             val cands = if (pmKnown) listOf(h24) else listOf(h24 % 12, h24 % 12 + 12)
-            return cands.any { Regex("(^|\\D)0?$it:$mm(\\D|$)").containsMatchIn(t) }
+            return cands.any { Regex("(^|[^\\d:/])0?$it:$mm([^\\d:]|$)").containsMatchIn(t) }
         }
-        if (!Regex("(^|\\D)0?$h12:$mm(\\D|$)").containsMatchIn(t)) return false
+        if (!Regex("(^|[^\\d:/])0?$h12:$mm([^\\d:]|$)").containsMatchIn(t)) return false
         if (!pmKnown) return true
         val pm = Regex("\\bpm\\b|p\\.m|अपराह्न|शाम|रात").containsMatchIn(t)
         return pm == isPm

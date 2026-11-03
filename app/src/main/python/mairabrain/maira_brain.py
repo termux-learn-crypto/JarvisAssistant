@@ -227,8 +227,30 @@ def cancel_alarm_rule(x, now):
         return R_([{"tool": "cancel_alarm", "parameters": {"time": tm}}], f"{lab} wala alarm band kar rahi hoon.", "अलार्म बंद कर रही हूँ।")
     part = "shaam" if re.search(r"\b(shaam|sham|pm|evening|raat|night|dopahar)\b", x) else ("subah" if re.search(r"\b(subah|savere|am|morning|sakali)\b", x) else "")
     return ask("Kitne baje wala alarm band karun?", "कितने बजे वाला अलार्म बंद करूँ?", ("cancel_al", part))
+def _ap(tm, h_hint=None):  # "06:00?" -> subah (4-9 baje uthne wale alarm), warna jaisa hai
+    if not tm.endswith("?"): return tm
+    h, mi = int(tm[:2]), int(tm[3:5])
+    return f"{h:02d}:{mi:02d}" if 4 <= h <= 9 else tm
+def modify_alarm_rule(x, now):  # "6 baje ke alarm ko 4 baje set karo"
+    m = re.search(r"^(.*?)\b(?:wale|wala|vale|ke|ka|ki)\s+(?:alarm|alaram)\s+(?:ko|la)\s+(.+?)\s*(?:baje)?\s*(?:pe|par|ko)?\s*(?:set|kar|karo|kar do|badlo|badal do|change|shift|rakho|lagao|move)\b", x)
+    if not m: return None
+    a, b = norm_time(m.group(1)), norm_time(m.group(2) if re.search(r"baje|:|\d\s*(am|pm)|subah|shaam|sham|raat", m.group(2)) else m.group(2) + " baje")
+    if not a or not b or a.startswith("@") or b.startswith("@"): return None
+    old_t = _ap(a); new_t = b
+    if new_t.endswith("?"):
+        pm = (not old_t.endswith("?")) and int(old_t[:2]) >= 12
+        h, mi = int(new_t[:2]), int(new_t[3:5])
+        new_t = f"{(h % 12) + (12 if pm else 0):02d}:{mi:02d}" if not old_t.endswith("?") else _ap(new_t)
+    r = make_alarm(new_t, None, now)
+    if not r["actions"] or r["actions"][0]["tool"] != "set_alarm": return r
+    nt = r["actions"][0]["parameters"]["time"]
+    return R_([{"tool": "cancel_alarm", "parameters": {"time": old_t}}, r["actions"][0]], f"{old_t.rstrip('?')} wala alarm band karke {nt} ka laga rahi hoon.", "अलार्म बदल रही हूँ।")
 def alarm_rule(text, now):
     x = pre(text).lower()
+    x = re.sub(r"\b([01]?\d|2[0-3]) ([0-5]\d)\b(?=\s*(ka|ke|ki|wala|wale|baje|am|pm|alarm|$))", r"\1:\2", x)
+    x = re.sub(r"\b(delet|delte|dlt|dilit|dilet|remov)\b", "delete", x)
+    _mo = modify_alarm_rule(x, now)
+    if _mo: return _mo
     _c = cancel_alarm_rule(x, now)
     if _c: return _c
     if re.search(r"\b(alarm|alaram|uthana|utha dena|jaga dena|jagana)\b", x):
