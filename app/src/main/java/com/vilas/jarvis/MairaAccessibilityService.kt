@@ -248,7 +248,7 @@ class MairaAccessibilityService : AccessibilityService() {
         var lp = false
         try {
             var c: AccessibilityNodeInfo? = first.parent; var d = 0
-            while (c != null && d < 4 && !lp) { if (c.isLongClickable) lp = onMain { c.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) }; c = c.parent; d++ }
+            while (c != null && d < 4 && !lp) { val cc = c; if (cc.isLongClickable) lp = onMain { cc.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) }; c = c.parent; d++ }
         } catch (_: Exception) {}
         if (!lp) tap(kotlin.math.max(dpx(40), rowX), fr.exactCenterY(), 900L)
         dbgRows.append(if (lp) "longclick ; " else "longtouch ; ")
