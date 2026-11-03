@@ -14,6 +14,10 @@ object CrashLog {
             prev?.uncaughtException(t, e)
         }
     }
+    fun mark(ctx: Context, what: String) = try {
+        File(ctx.applicationContext.filesDir, "svc.txt").appendText(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date()) + " " + what + "\n")
+    } catch (_: Throwable) {}
+    fun marks(ctx: Context): String = try { File(ctx.applicationContext.filesDir, "svc.txt").takeIf { it.exists() }?.readLines()?.takeLast(4)?.joinToString(", ") ?: "none" } catch (_: Throwable) { "?" }
     fun last(ctx: Context): String = try { File(ctx.applicationContext.filesDir, "crash.txt").takeIf { it.exists() }?.readText()?.take(300) ?: "" } catch (_: Throwable) { "" }
     fun accEnabled(ctx: Context): Boolean = try {
         (android.provider.Settings.Secure.getString(ctx.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
@@ -26,7 +30,7 @@ object CrashLog {
     }
     fun why(ctx: Context): String {
         val c = last(ctx)
-        return if (accEnabled(ctx)) "Settings me Maira ON dikh raha hai par service connect nahi hui." + (if (c.isNotBlank()) " [crash: $c]" else " Phone ek baar restart karo.")
+        return if (accEnabled(ctx)) "Settings me Maira ON dikh raha hai par service connect nahi hui." + (if (c.isNotBlank()) " [crash: $c]" else "") + " [svc: ${marks(ctx)}]"
         else "Settings me Maira ki Accessibility OFF hai."
     }
 }

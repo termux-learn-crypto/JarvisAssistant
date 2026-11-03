@@ -16,11 +16,19 @@ class MairaAccessibilityService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        CrashLog.mark(this, "created")
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        CrashLog.mark(this, "connected")
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        CrashLog.mark(this, "unbind")
+        if (instance === this) instance = null
+        return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
@@ -173,9 +181,9 @@ class MairaAccessibilityService : AccessibilityService() {
                 }.joinToString(" ") { label(it) }
                 txt = txt.replace(Regex("(\\d{1,2})\\s+(\\d{2})\\b"), "$1:$2")
                 if (pass == 0 && dbgRows.length < 300) dbgRows.append(txt.take(40)).append(" ; ")
-                if (!TRX.containsMatchIn(txt)) continue  // alarm row hi ho
+                if (!trx(txt) != null) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
-                val key = TRX.find(txt)?.value?.replace('.', ':')?.trimStart('0') + "|" + Regex("(?i)\\b(am|pm)\\b").find(txt)?.value?.lowercase()
+                val key = trx(txt)?.replace('.', ':')?.trimStart('0') + "|" + Regex("(?i)\\b(am|pm)\\b").find(txt)?.value?.lowercase()
                 if (!done.add(key)) continue  // ek time ka alarm sirf ek baar
                 // sirf EK baar toggle: dobara tap kabhi nahi (warna wapas ON ho jata hai)
                 var ok = false
@@ -217,7 +225,9 @@ class MairaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private val TRX = Regex("(?<![\\d:/.])\\d{1,2}[:.]\\d{2}(?![\\d:]|\\.\\d)")
+    private fun trx(t: String): String? = try {
+        Regex("(^|[^0-9:/.])([0-9]{1,2}[:.][0-9]{2})(?=[^0-9:.]|$)").find(t)?.groupValues?.get(2)
+    } catch (_: Throwable) { Regex("[0-9]{1,2}[:.][0-9]{2}").find(t)?.value }
     @Volatile var lastDebug = ""
     val dbgRows = StringBuilder()
     private fun stateOf(n: AccessibilityNodeInfo): String =
