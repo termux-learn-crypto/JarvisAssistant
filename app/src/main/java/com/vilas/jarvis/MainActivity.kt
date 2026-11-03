@@ -47,6 +47,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLog.install(this)
         executor = ActionExecutor(this)
         buildUi()
         // Chat-only: abhi voice (TTS/mic/wake word) band hai

@@ -52,13 +52,13 @@ object ExtraActions {
                 }
             }
             "take_screenshot" -> {
-                val svc = MairaAccessibilityService.instance
+                val svc = CrashLog.waitSvc(ctx)
                     ?: return "Screenshot ke liye Settings > Accessibility mein Maira on karo."
                 if (Build.VERSION.SDK_INT < 28) return "Is Android version pe screenshot nahi le sakti."
                 svc.global(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT, "Screenshot le liya.")
             }
             "cancel_alarm" -> {
-                val svc = MairaAccessibilityService.instance
+                val svc = CrashLog.waitSvc(ctx)
                 if (svc != null) {
                     val all = p.optString("all") == "true"
                     val tt = p.optString("time")
@@ -74,7 +74,7 @@ object ExtraActions {
                 }
                 if (svc == null) {
                     try { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
-                    return "Alarm band nahi hua: Maira ki Accessibility service band ho gayi hai (phone ne band kar di). Settings > Accessibility > Maira ON karo. Dobara band na ho isliye Maira ko Autostart ON aur Battery saver 'No restrictions' do."
+                    return "Alarm band nahi hua. " + CrashLog.why(ctx) + " Settings > Accessibility > Maira ON karo; Autostart ON aur Battery 'No restrictions' bhi do."
                 }
                 val i = Intent(AlarmClock.ACTION_DISMISS_ALARM)
                 val t = p.optString("time")
@@ -92,7 +92,7 @@ object ExtraActions {
                 if (start(ctx, i)) "Alarm band karne ke liye Clock ko bhej diya." else "Clock app alarm band nahi kar payi."
             }
             "enable_alarm" -> {
-                val svc = MairaAccessibilityService.instance
+                val svc = CrashLog.waitSvc(ctx)
                 val all = p.optString("all") == "true"
                 val tt = p.optString("time")
                 val amb = tt.endsWith("?")
@@ -100,7 +100,7 @@ object ExtraActions {
                 val hh = hm.getOrNull(0)?.toIntOrNull(); val mn = hm.getOrNull(1)?.toIntOrNull() ?: 0
                 if (svc == null) {
                     try { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
-                    return "Alarm chalu nahi hua: Maira ki Accessibility service band hai. Settings > Accessibility > Maira ON karo."
+                    return "Alarm chalu nahi hua. " + CrashLog.why(ctx)
                 }
                 val n = if (all || hh != null) svc.clockAlarmsOff(hh, mn, !amb, all, wantOn = true) else 0
                 try { ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}

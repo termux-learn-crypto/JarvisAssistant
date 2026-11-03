@@ -13,6 +13,11 @@ import java.util.Locale
  */
 class MairaAccessibilityService : AccessibilityService() {
 
+    override fun onCreate() {
+        super.onCreate()
+        CrashLog.install(this)
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this

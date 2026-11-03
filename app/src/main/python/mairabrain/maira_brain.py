@@ -220,7 +220,7 @@ def cancel_alarm_rule(x, now):
         return None
     LAST_ALARM = None
     if re.search(r"\b(sab|sabhi|saare|sare|all|sagle)\b", x):
-        return R_([{"tool": "cancel_alarm", "parameters": {"all": "true"}}], "Saare alarm band kar diye.", "सारे अलार्म बंद कर दिए।", conf=True)
+        return R_([{"tool": "cancel_alarm", "parameters": {"all": "true"}}], "Saare alarm band kar rahi hoon.", "सारे अलार्म बंद कर रही हूँ।", conf=True)
     tm = norm_time(x)
     if tm and not tm.startswith("@"):
         h, mi = int(tm[:2]), int(tm[3:5]); lab = f"{h % 12 or 12}:{mi:02d}" if mi else f"{h % 12 or 12} baje"
