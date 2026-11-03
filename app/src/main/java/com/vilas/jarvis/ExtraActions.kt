@@ -91,6 +91,26 @@ object ExtraActions {
                 }
                 if (start(ctx, i)) "Alarm band karne ke liye Clock ko bhej diya." else "Clock app alarm band nahi kar payi."
             }
+            "delete_alarm" -> {
+                val svc = CrashLog.waitSvc(ctx)
+                if (svc == null) {
+                    try { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                    return "Alarm delete nahi hua. " + CrashLog.why(ctx)
+                }
+                val all = p.optString("all") == "true"
+                val tt = p.optString("time")
+                val amb = tt.endsWith("?")
+                val hm = tt.trimEnd('?').split(":")
+                val hh = hm.getOrNull(0)?.toIntOrNull(); val mn = hm.getOrNull(1)?.toIntOrNull() ?: 0
+                if (!all && hh == null) return "Kaunsa alarm delete karun? Time batao."
+                val n = svc.clockAlarmsDelete(hh, mn, !amb, all)
+                try { ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
+                when {
+                    n < 0 -> "Clock app nahi khuli."
+                    n == 0 -> (if (all) "Alarm delete nahi ho paye." else "Clock me ${tt.trimEnd('?')} ka alarm delete nahi hua.") + " [debug: ${svc.dbgRows}]"
+                    else -> "$n alarm Clock se delete kar diye. [debug: ${svc.dbgRows}]"
+                }
+            }
             "enable_alarm" -> {
                 val svc = CrashLog.waitSvc(ctx)
                 val all = p.optString("all") == "true"

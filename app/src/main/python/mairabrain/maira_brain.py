@@ -194,7 +194,7 @@ def build_multi(toks, dm, part, now):
 
 def cancel_alarm_rule(x, now):
     global LAST_ALARM
-    al = re.search(r"\b(alarm|alaram)\b", x); off = re.search(r"\b(band|bandh|cancel|hatao|hata do|delete|off|mat bajana|nako|remove)\b", x)
+    al = re.search(r"\b(alarm|alaram)\b", x); off = re.search(r"\b(band|bandh|cancel|hatao|hata do|delete|off|mat bajana|nako|remove|mita do|mitao|mita)\b", x)
     if al and not off and re.search(r"\b(on|chalu|chaalu|shuru|enable|wapas|vapas|fir se|phir se|dobara|start)\b", x) and not re.search(r"\b(naya|new)\b", x):
         if re.search(r"\b(sab|sabhi|saare|sare|all|sagle)\b", x):
             return R_([{"tool": "enable_alarm", "parameters": {"all": "true"}}], "Saare alarm chalu kar rahi hoon.", "सारे अलार्म चालू कर रही हूँ।")
@@ -219,6 +219,13 @@ def cancel_alarm_rule(x, now):
             return R_([{"tool": "cancel_alarm", "parameters": {"time": tm}}], f"Theek hai, {tm} wala alarm band kar diya.", "ठीक है, अलार्म बंद कर दिया।")
         return None
     LAST_ALARM = None
+    if al and re.search(r"\b(delete|remove|mita do|mitao|mita|kadhun tak)\b", x):  # delete = Clock list se hatao, sirf off nahi
+        if re.search(r"\b(sab|sabhi|saare|sare|all|sagle)\b", x):
+            return R_([{"tool": "delete_alarm", "parameters": {"all": "true"}}], "Saare alarm delete kar rahi hoon.", "सारे अलार्म डिलीट कर रही हूँ।", conf=True)
+        tm = norm_time(x)
+        if tm and not tm.startswith("@"):
+            h, mi = int(tm[:2]), int(tm[3:5]); lab = f"{h % 12 or 12}:{mi:02d}" if mi else f"{h % 12 or 12} baje"
+            return R_([{"tool": "delete_alarm", "parameters": {"time": tm}}], f"{lab} wala alarm delete kar rahi hoon.", "अलार्म डिलीट कर रही हूँ।")
     if re.search(r"\b(sab|sabhi|saare|sare|all|sagle)\b", x):
         return R_([{"tool": "cancel_alarm", "parameters": {"all": "true"}}], "Saare alarm band kar rahi hoon.", "सारे अलार्म बंद कर रही हूँ।", conf=True)
     tm = norm_time(x)

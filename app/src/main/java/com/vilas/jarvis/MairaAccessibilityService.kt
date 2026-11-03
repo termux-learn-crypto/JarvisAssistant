@@ -205,6 +205,80 @@ class MairaAccessibilityService : AccessibilityService() {
         return count
     }
 
+    /** Alarm rows (Clock list) jinme switch hai: (switch, row text). */
+    private fun alarmRows(nodes: List<AccessibilityNodeInfo>): List<Pair<AccessibilityNodeInfo, String>> {
+        val out = mutableListOf<Pair<AccessibilityNodeInfo, String>>()
+        for (s in nodes.filter { it.isVisibleToUser && (it.isCheckable || (it.className?.toString() ?: "").contains("Switch")) }) {
+            val sr = android.graphics.Rect(); s.getBoundsInScreen(sr)
+            var txt = nodes.filter {
+                val r = android.graphics.Rect(); it.getBoundsInScreen(r)
+                it != s && !it.isCheckable && it.isVisibleToUser && kotlin.math.abs(r.exactCenterY() - sr.exactCenterY()) < dpx(55) && label(it).isNotBlank()
+            }.joinToString(" ") { label(it) }
+            txt = txt.replace(Regex("(\\d{1,2})\\s+(\\d{2})\\b"), "$1:$2")
+            if (trx(txt) != null) out.add(s to txt)
+        }
+        return out
+    }
+
+    private fun clickLabel(nodes: List<AccessibilityNodeInfo>, rx: Regex, bad: Regex? = null): Boolean {
+        val b = nodes.firstOrNull { it.isVisibleToUser && label(it).length < 40 && rx.containsMatchIn(label(it).trim()) && (bad == null || !bad.containsMatchIn(label(it))) && trx(label(it)) == null } ?: return false
+        var c: AccessibilityNodeInfo? = b; var d = 0
+        while (c != null && !c.isClickable && d < 4) { c = c.parent; d++ }
+        val ok = c != null && (try { onMain { c.performAction(AccessibilityNodeInfo.ACTION_CLICK) } } catch (_: Exception) { false })
+        if (!ok) { val r = android.graphics.Rect(); b.getBoundsInScreen(r); tap(r.exactCenterX(), r.exactCenterY(), 60L) }
+        dbgRows.append("click:").append(label(b).take(15)).append(" ; ")
+        return true
+    }
+
+    /** Clock app se alarm DELETE karo (sirf off nahi). Return: kitne delete hue (verified), -1 = Clock nahi khula. */
+    fun clockAlarmsDelete(h24: Int?, m: Int?, pmKnown: Boolean, all: Boolean): Int {
+        dbgRows.setLength(0)
+        try { startActivity(android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) { return -1 }
+        Thread.sleep(1800)
+        val nodes0 = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
+        val rows0 = alarmRows(nodes0)
+        val before = rows0.size
+        val targets = if (all) rows0 else rows0.filter { matchTime(it.second, h24 ?: -1, m ?: 0, pmKnown) }
+        dbgRows.append("rows=").append(before).append(" targets=").append(targets.size).append(" ; ")
+        if (targets.isEmpty()) return 0
+        // 1) pehle alarm row pe long-press -> selection mode
+        val first = targets[0].first
+        val fr = android.graphics.Rect(); first.getBoundsInScreen(fr)
+        val rowX = fr.left - dpx(120)
+        var lp = false
+        try {
+            var c: AccessibilityNodeInfo? = first.parent; var d = 0
+            while (c != null && d < 4 && !lp) { if (c.isLongClickable) lp = onMain { c.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) }; c = c.parent; d++ }
+        } catch (_: Exception) {}
+        if (!lp) tap(kotlin.math.max(dpx(40), rowX), fr.exactCenterY(), 900L)
+        dbgRows.append(if (lp) "longclick ; " else "longtouch ; ")
+        Thread.sleep(1200)
+        var ns = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
+        // 2) select: sab -> "Select all"; ek time -> sirf wahi (long-press se already selected); baaki matches tap
+        if (all && targets.size > 1) {
+            if (!clickLabel(ns, Regex("(?i)select all|sab chuno|सभी चुनें|सभी"), Regex("(?i)deselect"))) {
+                for (t in targets.drop(1)) { val r = android.graphics.Rect(); t.first.getBoundsInScreen(r); tap(kotlin.math.max(dpx(40), r.left - dpx(120)), r.exactCenterY(), 60L); Thread.sleep(400) }
+            }
+            Thread.sleep(700)
+        } else if (targets.size > 1) {
+            for (t in targets.drop(1)) { val r = android.graphics.Rect(); t.first.getBoundsInScreen(r); tap(kotlin.math.max(dpx(40), r.left - dpx(120)), r.exactCenterY(), 60L); Thread.sleep(400) }
+        }
+        ns = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
+        dbgRows.append("sel[").append(ns.filter { it.isVisibleToUser && label(it).isNotBlank() && label(it).length < 25 && trx(label(it)) == null }.take(8).joinToString("|") { label(it).take(14) }).append("] ")
+        // 3) Delete button
+        if (!clickLabel(ns, Regex("(?i)^delete|डिलीट|हटाएं|^remove"))) { dbgRows.append("noDeleteBtn ; "); try { onMain { performGlobalAction(GLOBAL_ACTION_BACK) } } catch (_: Exception) {}; return 0 }
+        Thread.sleep(900)
+        // 4) confirm dialog
+        ns = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
+        val conf = ns.filter { it.isVisibleToUser && Regex("(?i)^(delete|ok|डिलीट|हटाएं|हाँ|yes)$").matches(label(it).trim()) }
+        if (conf.isNotEmpty()) clickLabel(listOf(conf.last()), Regex(".*"))
+        Thread.sleep(1200)
+        // 5) verify: kitni rows kam hui
+        val after = alarmRows(try { onMain { allNodes() } } catch (_: Exception) { emptyList() }).size
+        dbgRows.append("after=").append(after).append(" ; ")
+        return kotlin.math.max(0, before - after)
+    }
+
     /** Alarm band karte waqt aane wala popup ("Turn off" / "Skip once" etc.) khud handle karo. */
     private fun handlePopup() {
         repeat(2) {
