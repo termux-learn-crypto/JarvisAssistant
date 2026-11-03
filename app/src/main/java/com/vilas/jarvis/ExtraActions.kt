@@ -72,6 +72,10 @@ object ExtraActions {
                         if (n == 0) return (if (all) "Koi chalu alarm nahi mila." else "Clock me ${tt.trimEnd('?')} ka chalu alarm nahi mila.") + " [debug: ${svc.lastDebug} | rows: ${svc.dbgRows}]"
                     }
                 }
+                if (svc == null) {
+                    try { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                    return "Alarm band nahi hua: Maira ki Accessibility service band ho gayi hai (phone ne band kar di). Settings > Accessibility > Maira ON karo. Dobara band na ho isliye Maira ko Autostart ON aur Battery saver 'No restrictions' do."
+                }
                 val i = Intent(AlarmClock.ACTION_DISMISS_ALARM)
                 val t = p.optString("time")
                 if (p.optString("all") == "true") {

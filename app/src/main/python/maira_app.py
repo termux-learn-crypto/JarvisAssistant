@@ -21,9 +21,15 @@ def warm():
 def ask(text, now_str):
     now = datetime.datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
     with _lock:
+        tl = text.strip().lower()
+        if __import__("re").fullmatch(r"(hey|hi+|hello|helo|hlo|namaste|namaskar|ram ram|good (morning|evening|night|afternoon)|suprabhat)[ !.,]*(maira|mayra|meera)?[ !.?]*", tl):
+            g = "Hi Vilas! Bolo, kya karna hai?"
+            if "morning" in tl or "suprabhat" in tl: g = "Good morning Vilas! Bolo, kya karna hai?"
+            elif "night" in tl: g = "Good night Vilas! Aaram se so jao."
+            return json.dumps({"actions": [], "confirmationRequired": False, "reply": g, "speech": g}, ensure_ascii=False)
         r = maira_brain.run(text, now=now)
-        if r is None:
-            r = {"actions": [], "confirmationRequired": False, "reply": "Ye samajh nahi aaya, thoda alag tarah likho.", "speech": ""}
+        if r is None or (not r.get("actions") and not r.get("reply")) or any(a.get("tool") == "keyboard" and not a.get("parameters", {}).get("text") for a in r.get("actions", [])):
+            r = {"actions": [{"tool": "fallback_llm", "parameters": {}}]}
         if any(a.get("tool") == "fallback_llm" for a in r.get("actions", [])):
             try:
                 ans = _get_chat().chat(text)
