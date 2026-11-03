@@ -181,7 +181,7 @@ class MairaAccessibilityService : AccessibilityService() {
                 }.joinToString(" ") { label(it) }
                 txt = txt.replace(Regex("(\\d{1,2})\\s+(\\d{2})\\b"), "$1:$2")
                 if (pass == 0 && dbgRows.length < 300) dbgRows.append(txt.take(40)).append(" ; ")
-                if (!trx(txt) != null) continue  // alarm row hi ho
+                if (trx(txt) == null) continue  // alarm row hi ho
                 if (!all && !matchTime(txt, h24 ?: -1, m ?: 0, pmKnown)) continue
                 val key = trx(txt)?.replace('.', ':')?.trimStart('0') + "|" + Regex("(?i)\\b(am|pm)\\b").find(txt)?.value?.lowercase()
                 if (!done.add(key)) continue  // ek time ka alarm sirf ek baar
