@@ -145,7 +145,7 @@ class MairaAccessibilityService : AccessibilityService() {
 
 
     /** Clock app ki alarm list khol ke matching alarm ka switch khud OFF karta hai (bina touch). */
-    fun clockAlarmsOff(h24: Int?, m: Int?, pmKnown: Boolean, all: Boolean): Int {
+    fun clockAlarmsOff(h24: Int?, m: Int?, pmKnown: Boolean, all: Boolean, wantOn: Boolean = false): Int {
         val i = android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         try { startActivity(i) } catch (_: Exception) { return -1 }
         Thread.sleep(1800)
@@ -153,7 +153,7 @@ class MairaAccessibilityService : AccessibilityService() {
         val done = HashSet<String>()
         repeat(6) { pass ->
             val nodes = try { onMain { allNodes() } } catch (_: Exception) { emptyList() }
-            val sw = nodes.filter { isOn(it) && it.isVisibleToUser }
+            val sw = nodes.filter { it.isVisibleToUser && (if (wantOn) isOffSwitch(it) else isOn(it)) }
             if (pass == 0) lastDebug = nodes.filter { it.isCheckable || (it.className?.toString() ?: "").contains("Switch") }
                 .take(8).joinToString("; ") { (it.className?.toString()?.substringAfterLast('.') ?: "?") + "/" + it.isChecked + "/" + stateOf(it) + "/" + label(it).take(15) } +
                 " | pkg=" + (nodes.firstOrNull()?.packageName ?: "?")
@@ -180,7 +180,7 @@ class MairaAccessibilityService : AccessibilityService() {
                     tap(r.exactCenterX(), r.exactCenterY(), 60L)
                 }
                 Thread.sleep(900)
-                handlePopup()
+                if (!wantOn) handlePopup()
                 count++
                 if (dbgRows.length < 400) dbgRows.append("tap:").append(key).append(if (ok) "/click" else "/touch").append(" ; ")
             }
@@ -216,6 +216,11 @@ class MairaAccessibilityService : AccessibilityService() {
     val dbgRows = StringBuilder()
     private fun stateOf(n: AccessibilityNodeInfo): String =
         if (Build.VERSION.SDK_INT >= 30) (n.stateDescription?.toString() ?: "") else ""
+    private fun isOffSwitch(n: AccessibilityNodeInfo): Boolean {
+        val c = n.className?.toString() ?: ""
+        if (!(n.isCheckable || c.contains("Switch") || c.contains("Toggle"))) return false
+        return !isOn(n)
+    }
     private fun isOn(n: AccessibilityNodeInfo): Boolean {
         val c = n.className?.toString() ?: ""
         if (n.isCheckable && n.isChecked) return true

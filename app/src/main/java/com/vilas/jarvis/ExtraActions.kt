@@ -91,6 +91,28 @@ object ExtraActions {
                 }
                 if (start(ctx, i)) "Alarm band karne ke liye Clock ko bhej diya." else "Clock app alarm band nahi kar payi."
             }
+            "enable_alarm" -> {
+                val svc = MairaAccessibilityService.instance
+                val all = p.optString("all") == "true"
+                val tt = p.optString("time")
+                val amb = tt.endsWith("?")
+                val hm = tt.trimEnd('?').split(":")
+                val hh = hm.getOrNull(0)?.toIntOrNull(); val mn = hm.getOrNull(1)?.toIntOrNull() ?: 0
+                if (svc == null) {
+                    try { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                    return "Alarm chalu nahi hua: Maira ki Accessibility service band hai. Settings > Accessibility > Maira ON karo."
+                }
+                val n = if (all || hh != null) svc.clockAlarmsOff(hh, mn, !amb, all, wantOn = true) else 0
+                try { ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) } catch (_: Exception) {}
+                if (n > 0) return if (all) "$n alarm Clock me chalu kar diye." else "Clock me purana alarm wapas chalu kar diya."
+                if (all) return "Koi band alarm nahi mila."
+                // purana alarm nahi mila -> naya laga do
+                val st = p.optString("set_time").ifBlank { tt.trimEnd('?') }.split(":")
+                val sh = st[0].toIntOrNull() ?: return "Time samajh nahi aaya."
+                val sm = st.getOrNull(1)?.toIntOrNull() ?: 0
+                val i = Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, sh).putExtra(AlarmClock.EXTRA_MINUTES, sm).putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                if (start(ctx, i)) String.format(java.util.Locale.ROOT, "Purana alarm nahi mila, naya %02d:%02d ka laga diya.", sh, sm) else "Alarm nahi laga paayi."
+            }
             "take_photo" -> if (start(ctx, Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))) "Camera khol diya." else "Camera nahi khula."
             "toggle_dnd" -> {
                 val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

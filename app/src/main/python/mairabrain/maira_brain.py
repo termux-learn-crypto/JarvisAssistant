@@ -195,7 +195,23 @@ def build_multi(toks, dm, part, now):
 def cancel_alarm_rule(x, now):
     global LAST_ALARM
     al = re.search(r"\b(alarm|alaram)\b", x); off = re.search(r"\b(band|bandh|cancel|hatao|hata do|delete|off|mat bajana|nako|remove)\b", x)
+    if al and not off and re.search(r"\b(on|chalu|chaalu|shuru|enable|wapas|vapas|fir se|phir se|dobara|start)\b", x) and not re.search(r"\b(naya|new)\b", x):
+        if re.search(r"\b(sab|sabhi|saare|sare|all|sagle)\b", x):
+            return R_([{"tool": "enable_alarm", "parameters": {"all": "true"}}], "Saare alarm chalu kar rahi hoon.", "सारे अलार्म चालू कर रही हूँ।")
+        tm = norm_time(x)
+        if tm and not tm.startswith("@"):
+            h, mi = int(tm[:2]), int(tm[3:5]); lab = f"{h % 12 or 12}:{mi:02d}" if mi else f"{h % 12 or 12} baje"
+            st = make_alarm(tm, None, now)["actions"]
+            stt = st[0]["parameters"]["time"] if st else tm.rstrip("?")
+            return R_([{"tool": "enable_alarm", "parameters": {"time": tm, "set_time": stt}}], f"{lab} wala alarm chalu kar rahi hoon.", "अलार्म चालू कर रही हूँ।")
+        return None
     if not off: return None
+    if not al:  # "6:10 ka bhi band karo" — time + band = alarm band
+        tm0 = norm_time(x)
+        if tm0 and not tm0.startswith("@") and not re.search(r"\b(wifi|bluetooth|torch|flash|gaana|song|music|video|youtube|data|net|hotspot|location|app|screen|phone|volume|awaaz|awaz|tv|light|fan|timer)\b", x):
+            h, mi = int(tm0[:2]), int(tm0[3:5]); lab = f"{h % 12 or 12}:{mi:02d}" if mi else f"{h % 12 or 12} baje"
+            LAST_ALARM = None
+            return R_([{"tool": "cancel_alarm", "parameters": {"time": tm0}}], f"{lab} wala alarm band kar rahi hoon.", "अलार्म बंद कर रही हूँ।")
     if not al:  # "band kar do" turant alarm lagane ke baad
         if LAST_ALARM and len(x.split()) <= 4 and not re.search(r"\b(wifi|bluetooth|torch|flash|gaana|song|music|video|youtube|data|net|hotspot|location|app|screen|phone)\b", x):
             tm, dm = LAST_ALARM; LAST_ALARM = None
